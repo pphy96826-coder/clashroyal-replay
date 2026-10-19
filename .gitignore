@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+/state/
+deploy-config.json
+host-launch.json
+console-runs/
+*.apk
+*.so
+*.zip
+*.zip.???
+/tools/
+/reference-runtime/

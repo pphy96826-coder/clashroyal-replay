@@ -1,0 +1,14 @@
+﻿组件来源与许可
+
+本包为当前 Windows + MuMu 适配环境的文件备份。各第三方组件原有许可文件保留在其目录中。
+
+Python: tools/python/LICENSE.txt；https://www.python.org/
+Android NDK: tools/android-ndk-r27d/NOTICE 和 NOTICE.toolchain；https://developer.android.com/ndk
+Temurin JDK: tools/jdk17/legal；https://adoptium.net/
+Android Build-tools: tools/android-build-tools37/NOTICE.txt；https://developer.android.com/tools
+ADB: tools/adb/licenses.txt；来自当前 MuMu 安装的 ADB 工具。
+MuMu: https://mumu.163.com/download/；本包不含 MuMu 安装器。
+腾讯客户端 APK: 从本机已安装的 38.4.2 客户端提取，仅含安装包，不含账号或虚拟磁盘。
+项目源码与来源记录: source/windows-adaptation、app/vendor/PROVENANCE.json 及源码目录原有说明。
+
+当前目标设备必须由安装向导重新绑定并校验；不得将 reference-runtime 当作新电脑已完成部署的证明。

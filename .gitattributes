@@ -1,0 +1,2 @@
+# Preserve exact upstream file bytes for regression manifests.
+* -text

@@ -1,0 +1,10 @@
+{
+  "origin": "FirstLight replay parser/card resolver",
+  "parser_sha256": "48ea2d82e42fae927d5d766373c831e4415da845fde67f2406402c5f71dcef26",
+  "resolver_sha256": "988f0bae20ae3247279473627cf12dd4e741079a87c5b788656cbca7bb4ee296",
+  "modified": true,
+  "modifications": [
+    "parser training import replaced by its scalar90",
+    "resolver extracted; public aliases frozen; no dataset or training runtime"
+  ]
+}

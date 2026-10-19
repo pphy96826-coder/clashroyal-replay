@@ -1,0 +1,30 @@
+{
+  "library_bytes": 30559184,
+  "library_sha256": "c6b2482a2f1fbd2e15c99df7fb18ba3d5596b77b3a81930d3638241a3c37fe55",
+  "jni_exports": [
+    {
+      "index": 367,
+      "name": "JNI_OnLoad",
+      "va": "0x16fbd1c",
+      "size": 28,
+      "entry_bytes": "fd7bbfa9fd03009164b60f94c00080522000a072fd7bc1a8c0035fd6",
+      "sha256": "99625f7e6147288206e7a28473d20b5a55c15f8daf3e8cf103875f6e3af1fb04"
+    },
+    {
+      "index": 400,
+      "name": "Java_com_supercell_titan_GameApp_nOnTouchEvent",
+      "va": "0x16fca10",
+      "size": 112,
+      "entry_bytes": "fd7bbca9f85f01a9f65702a9f44f03a9fd030091b82b00b0f303052af403042a",
+      "sha256": "dd65af3348b85c4fbc5eb86e65ff9d43d8ae47e00b3b69887be7998f34a235c2"
+    }
+  ],
+  "package": "com.tencent.tmgp.supercell.clashroyale",
+  "version": "38.4.2",
+  "architecture": "arm64-v8a",
+  "executable_span": 28561408,
+  "map_asset_sha256": {
+    "locations/dragon_arena.csv": "66e8a9b73c11b7cdd47bdae0440c5a05a9b9ba1fe8a43ce28e9e4e66137ce8fe",
+    "tilemaps/tilemap.csv": "93af091258a3d57081c50d638eb98ea45f4ea8dd21a0893cc35a0e32ba3a457f"
+  }
+}
