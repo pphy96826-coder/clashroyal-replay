@@ -1,6 +1,14 @@
 # Clash Royale HTML 回放：Android / macOS / Windows
 
-## 最新：2026-10-19 hotfix3 · 三平台同步
+## 最新：2026-10-20 Android hotfix9 · 游戏内悬浮控制台
+
+[下载 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261020-hotfix9) · [更新说明与验证范围](docs/更新说明-20261020-hotfix9.md)
+
+- Android：`2026.10.20-hotfix9`。控制台可作为游戏内悬浮窗显示或隐藏（拖动圆形「回放」按钮，点一下展开或收起）。在悬浮窗和主控制台里都能随时添加、删除、置顶或清空待播队列。覆盖安装即可，不清数据。
+- 同时公开此前未发布的 hotfix4–8 安卓修复：启动失败解锁、帧绑定原生调用、调试器兼容性诊断和严格内存映射解析。这些修复都不代表手机虚拟机已兼容。
+- 本次只更新 Android，macOS / Windows 继续使用下方 hotfix3 的发布包。悬浮窗已在 MuMu Android 12 上实测；从悬浮窗完整播放一局尚未实测。
+
+## 2026-10-19 hotfix3 · 三平台同步
 
 [下载本次更新](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261019-hotfix3) · [完整图文教程](docs/全平台安装教程.md) · [离线 HTML](docs/全平台安装教程.html) · [PDF 手册](docs/全平台安装教程.pdf)
 

@@ -15,6 +15,7 @@ import traceback
 
 from device_session import bind, ReadOnlySession
 from device_runtime import prepare as prepare_runtime
+from proc_maps import diagnostics as maps_diagnostics
 
 
 def run(source, output, apk):
@@ -70,6 +71,9 @@ def run(source, output, apk):
             stream.write(traceback.format_exc())
         raise
     finally:
+        diagnostic=maps_diagnostics()
+        if diagnostic:
+            with (output/'maps-read-diagnostic.json').open('x') as stream:json.dump(diagnostic,stream,ensure_ascii=False,indent=2)
         # Only files just created inside this fresh app-owned attempt. Never
         # change game files, permissions, security settings or another app.
         owner = output.parent.stat()

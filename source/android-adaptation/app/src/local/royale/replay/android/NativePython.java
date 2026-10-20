@@ -141,7 +141,7 @@ public final class NativePython {
     public static synchronized JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic)throws Exception {
         if(speed!=.25&&speed!=.5&&speed!=1&&speed!=2&&speed!=4)throw new IOException("无效倍速");
         File active=new File(context.getFilesDir(),"phone-active.json");
-        if(active.isFile()){
+        if(active.isFile()&&!PlaybackStatus.launchFailureReleased(context)){
             JSONObject previous=new JSONObject(MainActivity.text(active,8192));
             File directory=PlaybackStatus.activeDirectory(context);
             File status=new File(directory,"status.json");
@@ -202,7 +202,9 @@ public final class NativePython {
                     job.put("launch_failed_before_native_entry",true);
                     MainActivity.write(active,job.toString().getBytes(StandardCharsets.UTF_8));
                 }
-                throw new IOException("本机执行器启动失败（"+process.exitValue()+"），启动记录已保留");
+                String detail="";
+                try{detail=MainActivity.text(new File(manifest.getParentFile(),"play-process.log"),16384).trim();if(detail.length()>600)detail=detail.substring(detail.length()-600);}catch(IOException ignored){}
+                throw new IOException("本机执行器启动失败（"+process.exitValue()+"），启动记录已保留"+(detail.isEmpty()?"":"："+detail));
             }
         }
         if(!status.isFile())throw new IOException("本机执行器尚未确认启动；保留请求，不自动重试");

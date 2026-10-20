@@ -11,6 +11,7 @@ import re
 import struct
 import subprocess
 import zipfile
+from proc_maps import parse as parse_maps,read_snapshot
 
 MASK = 0x00ffffffffffffff
 CONTRACT = json.loads((Path(__file__).parent/'native-contract.json').read_text())
@@ -79,10 +80,8 @@ def bind(apk):
     status = (proc/'status').read_text()
     if 'TracerPid:\t0' not in status.splitlines():
         raise ValueError('existing debugger owns game; no duplicate observation')
-    maps = (proc/'maps').read_text()
-    rows = [line for line in maps.splitlines() if len(line.split()) >= 6
-            and line.split()[1] == 'r-xp' and int(line.split()[2], 16) == offset
-            and line.split()[-1] == str(apk)]
+    maps = read_snapshot(proc/'maps')
+    rows = [row[5] for row in parse_maps(maps) if row[2]=='r-xp' and row[3]==offset and row[4]==str(apk)]
     if len(rows) != 1:
         raise ValueError('installed game mapping is absent or ambiguous')
     low, high = (int(x, 16) for x in rows[0].split()[0].split('-'))
@@ -115,10 +114,8 @@ class ReadOnlySession:
         self.used = 0
         maps = self.verify()
         self.mappings = []
-        for line in maps.splitlines():
-            fields = line.split()
-            low, high = (int(x, 16) for x in fields[0].split('-'))
-            self.mappings.append((low, high, fields[1]))
+        for low,high,mode,offset,path,line in parse_maps(maps):
+            self.mappings.append((low, high, mode))
         if self.read(self.base, 4) != b'\x7fELF':
             raise ValueError('native ELF header differs')
         for pin in CONTRACT['jni_exports']:
@@ -130,7 +127,7 @@ class ReadOnlySession:
             raise ValueError('game generation changed; never migrate a native handle')
         if (self.proc/'cmdline').read_bytes().split(b'\0')[0] != CONTRACT['package'].encode():
             raise ValueError('game process identity changed')
-        maps = (self.proc/'maps').read_text()
+        maps = read_snapshot(self.proc/'maps')
         if self.identity['mapping'] not in maps.splitlines():
             raise ValueError('game mapping changed')
         if start_time((self.proc/'stat').read_text()) != self.identity['process_start_time']:

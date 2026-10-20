@@ -13,6 +13,7 @@ import traceback
 import subprocess
 import struct
 from elf_contract import Elf
+from device_expression import evaluate
 
 
 def needed(raw):
@@ -77,20 +78,18 @@ def check_own_child(lldb, debugger, executable, destination):
         error=lldb.SBError()
         # This PID comes only from the child we just created, never input HTML,
         # user text, a process search, or the official game package.
-        process=target.AttachToProcessWithID(lldb.SBListener('phone-own-child'),child.pid,error)
+        process=target.AttachToProcessWithID(debugger.GetListener(),child.pid,error)
         if not error.Success() or not process.IsValid():raise RuntimeError('own-child attach failed: '+str(error))
         if process.GetProcessID()!=child.pid:raise ValueError('synthetic child identity differs')
         found=target.FindFunctions('cr_phone_test_value')
         if found.GetSize()!=1:raise ValueError('synthetic function is not unique')
         address=found.GetContextAtIndex(0).GetFunction().GetStartAddress().GetLoadAddress(target)
         if address==lldb.LLDB_INVALID_ADDRESS:raise ValueError('synthetic function not mapped')
-        process.SetSelectedThread(process.GetThreadByID(child.pid))
-        options=lldb.SBExpressionOptions();options.SetLanguage(lldb.eLanguageTypeC)
-        options.SetAllowJIT(True);options.SetTimeoutInMicroSeconds(5000000)
-        options.SetIgnoreBreakpoints(True);options.SetUnwindOnError(True);options.SetStopOthers(True)
-        value=target.EvaluateExpression('((int(*)(int))%dULL)(37)'%address,options)
-        if not value.GetError().Success() or value.GetValueAsSigned()!=44:
-            raise RuntimeError('own-child native expression failed: '+str(value.GetError()))
+        evidence={}
+        try:value=evaluate(lldb,target,process,child.pid,'((int(*)(int))%dULL)(37)'%address,evidence=evidence)
+        finally:
+            with (destination/'native-expression.json').open('x') as stream:json.dump(evidence,stream,indent=2)
+        if value!=44:raise RuntimeError('own-child native expression result differs')
         if not process.Detach().Success():raise RuntimeError('own-child debugger detach failed')
         return True
     finally:

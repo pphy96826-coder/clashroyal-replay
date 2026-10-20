@@ -21,7 +21,9 @@ def load_reader():
             return json.dumps(dict(library_sha256='a'*64, package='test', executable_span=4096, jni_exports=[]))
         return original(path, *args, **kwargs)
     with patch.object(Path, 'read_text', content):
-        spec.loader.exec_module(module)
+        maps_spec=importlib.util.spec_from_file_location('proc_maps',DEVICE/'proc_maps.py')
+        maps_module=importlib.util.module_from_spec(maps_spec);maps_spec.loader.exec_module(maps_module)
+        with patch.dict(sys.modules,proc_maps=maps_module):spec.loader.exec_module(module)
     return module
 
 

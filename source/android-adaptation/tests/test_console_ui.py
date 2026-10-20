@@ -8,7 +8,7 @@ JAVA=ROOT/'app/src/local/royale/replay/android'
 class ConsoleTests(unittest.TestCase):
     def test_main_has_three_primary_and_terminal_contextual_actions(self):
         main=(JAVA/'MainActivity.java').read_text()
-        self.assertEqual(main.count('button(root,'),11)  # Queue actions plus read-only diagnostic export.
+        self.assertEqual(main.count('button(root,'),12)  # Queue actions, floating toggle, read-only diagnostic export.
         self.assertIn('添加多个 HTML 到队列',main)
         self.assertIn('queueImporting',main)
         for old in ('doctor();','localBuild();','fixture();','pairing.json','status-','请求原生播放','等待电脑'):
@@ -21,6 +21,44 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn('removeReplay.setVisibility(saved!=null?',main)
         self.assertIn('SavedReplay.load',main)
         self.assertNotIn('true);PlaybackService.openGame',main)
+
+    def test_floating_console_is_touchable_only_inside_and_reuses_console_gates(self):
+        floating=(JAVA/'FloatingConsole.java').read_text()
+        self.assertIn('FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL',floating)
+        self.assertNotIn('FLAG_NOT_TOUCHABLE',floating)  # Its own buttons take touches; outside goes to the game.
+        self.assertIn('ConsoleActions.playNext(FloatingConsole.this)',floating)
+        self.assertIn('ConsoleActions.requestStop(FloatingConsole.this)',floating)
+        self.assertIn('stopArmedUntil',floating)  # Stop needs a second tap.
+        self.assertIn('PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE',floating)
+        actions=(JAVA/'ConsoleActions.java').read_text()
+        self.assertIn('else if(PlaybackStatus.ownsTask(state))throw',actions)
+        self.assertIn('PlaybackService.begin(context,source,speed(),true,',actions)
+        main=(JAVA/'MainActivity.java').read_text()
+        self.assertIn('ConsoleActions.playNext(MainActivity.this)',main)
+        self.assertIn('QueueRows.render(this,queueRows,',main)
+        ns='{http://schemas.android.com/apk/res/android}'
+        import xml.etree.ElementTree as ET
+        app=ET.parse(ROOT/'app/AndroidManifest.xml').getroot().find('application')
+        picker=next(a for a in app.findall('activity') if a.get(ns+'name')=='.QueueImportActivity')
+        self.assertEqual(picker.get(ns+'exported'),'false')
+        self.assertEqual(picker.get(ns+'taskAffinity'),'')  # Finishing returns to the game, not the console task.
+        service=next(s for s in app.findall('service') if s.get(ns+'name')=='.FloatingConsole')
+        self.assertEqual(service.get(ns+'exported'),'false')
+        importer=(JAVA/'QueueImportActivity.java').read_text()
+        self.assertLess(importer.index('ReplayQueue.importFrom'),importer.index('runOnUiThread(new Runnable(){public void run(){finish();}})'))
+
+    def test_queue_edits_are_bounded_to_queue_copies(self):
+        queue=(JAVA/'ReplayQueue.java').read_text()
+        remove=queue[queue.index('static synchronized void remove'):queue.index('static synchronized void moveToFront')]
+        self.assertIn('find(rows,id)',remove)
+        self.assertIn('new File(dir,id+".html").delete()',remove)
+        self.assertNotIn('getFilesDir',remove)
+        self.assertIn('if(!id.matches("[a-f0-9-]{36}"))throw',queue[queue.index('private static int find'):])
+        actions=(JAVA/'ConsoleActions.java').read_text()
+        for name in ('removeQueued','moveQueuedToFront','clearQueue'):
+            body=actions[actions.index(name):]
+            self.assertIn('if(starting)throw',body[:200])
+            self.assertIn('static synchronized',actions[actions.index(name)-40:actions.index(name)])
 
     def test_notification_returns_to_console_and_request_is_immutable(self):
         service=(JAVA/'PlaybackService.java').read_text()

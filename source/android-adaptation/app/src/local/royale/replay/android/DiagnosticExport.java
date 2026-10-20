@@ -10,25 +10,18 @@ import java.util.zip.*;
 
 /** Bounded, click-scoped export of our own records. No root, game or network API. */
 public final class DiagnosticExport {
-    static final String VERSION="2026.10.19-hotfix3";
+    static final String VERSION="2026.10.20-hotfix9";
     private static final int MAX_FILE=4*1024*1024,MAX_TOTAL=16*1024*1024,MAX_FILES=256;
     private static final Set<String> GLOBAL=new HashSet<String>(Arrays.asList(
         "phone-active.json","phone-service-state.json","local-import-status.json",
         "local-preparation-status.json","local-preparation-process.json","local-build-status.json","local-tools-status.json"));
     private static final Set<String> TASK=new HashSet<String>(Arrays.asList(
         "status.json","error.txt","native-entry.json","ability-search.json","failure-recovery.json",
-        "preparation-release.json","process-release.json","automatic-return.json"));
+        "preparation-release.json","process-release.json","automatic-return.json","maps-diagnostic.json"));
     private DiagnosticExport(){}
 
     static File checkedTask(File files,File active)throws IOException{
-        File result=active.getParentFile(),job=result==null?null:result.getParentFile(),imports=job==null?null:job.getParentFile();
-        if(!active.getName().equals("phone-playback")||result==null||!result.getName().equals("result")
-           ||job==null||!job.getName().matches("[a-f0-9-]{36}")||imports==null
-           ||!Files.isSameFile(imports.toPath(),new File(files,"local-imports").toPath()))throw new IOException("active task is outside owned imports");
-        File normalized=new File(files,"local-imports/"+job.getName()+"/result/phone-playback");
-        for(File path=active;!path.equals(imports);path=path.getParentFile())if(Files.isSymbolicLink(path.toPath()))throw new IOException("linked task refused");
-        if(!Files.isSameFile(active.toPath(),normalized.toPath()))throw new IOException("active task alias differs");
-        return normalized;
+        return PrivateTaskPaths.resolve(files,active,true);
     }
     static boolean taskName(String name){
         return TASK.contains(name)||name.matches("[a-z0-9][a-z0-9-]{0,95}-(result|binding|component|source-execution)\\.json");
@@ -36,11 +29,14 @@ public final class DiagnosticExport {
     private static void collect(File files,File task,SortedMap<String,File> selected)throws IOException{
         for(String name:GLOBAL)selected.put("console/"+name,new File(files,name));
         if(task==null)return;
+        for(String name:new String[]{"play-process.log","play-request.json","source.json","result.json"})
+            selected.put("startup/"+name,new File(task.getParentFile(),name));
+        if(PrivateTaskPaths.missing(task))return;
         File[] children=task.listFiles();if(children==null)throw new IOException("task directory unavailable");
         if(children.length>4096)throw new IOException("task directory exceeds enumeration limit");
         for(File file:children)if(taskName(file.getName()))selected.put("task/"+file.getName(),file);
         File preparation=new File(task,"native-preparation");
-        for(String name:new String[]{"result.json","observation.json","levels.json","towers.json","preparation.json","preparation-delayed.json"})
+        for(String name:new String[]{"result.json","observation.json","levels.json","towers.json","preparation.json","preparation-delayed.json","maps-read-diagnostic.json"})
             selected.put("task/native-preparation/"+name,new File(preparation,name));
         // Calibration is bounded to 12 attempts by the runtime, not a recursive scan.
         for(int i=0;i<12;i++)selected.put("task/native-preparation/preparation-calibrated-"+i+".json",new File(preparation,"preparation-calibrated-"+i+".json"));

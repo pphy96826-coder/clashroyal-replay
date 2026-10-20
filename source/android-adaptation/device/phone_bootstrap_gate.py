@@ -10,6 +10,8 @@ import time
 import lldb
 from device_session import ReadOnlySession
 from source_completion import source_completed,source_failure
+from device_expression import evaluate
+from debugger_compatibility import snapshot as compatibility_snapshot
 
 
 def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
@@ -35,15 +37,39 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
         root=ptr(base+0x1d34ae0)
         if root!=int(binding['root_raw'],0) or ptr(root+0x20)!=int(binding['services_raw'],0):raise RuntimeError('public resource owner changed')
     def expression(address,signature,args='',stop_others=True):
-        thread=process.GetThreadByID(identity['pid'])
-        if not thread.IsValid():raise RuntimeError('main thread absent')
-        process.SetSelectedThread(thread)
-        options=lldb.SBExpressionOptions();options.SetLanguage(lldb.eLanguageTypeC);options.SetAllowJIT(True)
-        options.SetTimeoutInMicroSeconds(5000000);options.SetIgnoreBreakpoints(True)
-        options.SetUnwindOnError(True);options.SetStopOthers(stop_others)
-        value=target.EvaluateExpression('((%s)%dULL)(%s)'%(signature,address,args),options)
-        if not value.GetError().Success():raise RuntimeError(str(value.GetError()))
-        return value.GetValueAsUnsigned()
+        evidence={};result['native_expression']=evidence
+        # Our debugger instance only. Keep the allocation/CanJIT reason when
+        # a virtual ROM rejects native execution, without overriding that
+        # decision, retrying the call, or changing SELinux/device settings.
+        log=directory/(attempt+'-expression.log')
+        logging=False
+        logging_error=''
+        try:
+            command=lldb.SBCommandReturnObject()
+            debugger.GetCommandInterpreter().HandleCommand(
+                'log enable -f '+json.dumps(str(log))+' lldb process thread step',command)
+            logging=command.Succeeded()
+            logging_error='' if logging else str(command.GetError())[:500]
+            return evaluate(lldb,target,process,identity['pid'],
+                            '((%s)%dULL)(%s)'%(signature,address,args),
+                            stop_others=stop_others,evidence=evidence)
+        finally:
+            if logging:
+                debugger.GetCommandInterpreter().HandleCommand('log disable lldb process thread step',lldb.SBCommandReturnObject())
+            if logging_error:evidence['logging_error']=logging_error
+            if evidence.get('error'):
+                try:
+                    # Read only AFTER the failed call. Never retry an expression
+                    # or insert an extra allocation into the target as a test.
+                    current=ReadOnlySession(identity).verify()
+                    evidence['compatibility']=compatibility_snapshot(lldb,target,process,identity['pid'],current)
+                except Exception as error:evidence['compatibility_error']=str(error)[:500]
+                try:
+                    with log.open('rb') as stream:
+                        stream.seek(0,2);stream.seek(max(0,stream.tell()-12000))
+                        evidence['debugger_process_log_tail']=stream.read(12000).decode(errors='replace')
+                except OSError:pass
+            save()
     def call(name,args=''):
         signature='int(*)(unsigned long long,int,unsigned long long,unsigned long long,unsigned long long)' if name=='start' else 'int(*)()' if name=='release' else 'unsigned long long(*)()'
         return expression(functions['cr_web_bootstrap_'+name],signature,args,name!='start')

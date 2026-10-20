@@ -27,6 +27,7 @@ from scene_start_contract import require_idle_lobby
 from timing_policy import apply_offset, GLOBAL_DELAY_TICKS
 from align_native_deal import align,calibrate,deck_fingerprint
 from finalize_replay import finalize
+from proc_maps import MapsSnapshotError,diagnostics as maps_diagnostics
 
 
 def read(path):return json.loads(path.read_text())
@@ -309,7 +310,18 @@ def recover_failed_attempt(directory,attempt,identity):
     if result.get('component_unloaded'):return 'already_clean'
     component=read(directory/(attempt+'-component.json'))['device_path']
     session=ReadOnlySession(identity)
-    rows=[row.split() for row in session.verify().splitlines() if len(row.split())>=6 and row.split()[-1]==component]
+    maps=session.verify()
+    rows=[row.split() for row in maps.splitlines() if len(row.split())>=6 and row.split()[-1]==component]
+    if not rows:
+        from device_expression import rejected_before_load
+        if rejected_before_load(result):
+            if any(token in maps for token in ('libphone_replay_','libcr_web_','libcr_private_','libcr_direct_')):
+                raise RuntimeError('another native component remains; release refused')
+            require_idle_lobby(scene_state(identity))
+            if 'TracerPid:\t0' not in (session.proc/'status').read_text().splitlines():
+                raise RuntimeError('debugger still attached; release refused')
+            session.verify()
+            return 'already_clean'
     if not rows or not any('x' in row[1] for row in rows):raise RuntimeError('无法确认失败组件归属')
     manager=session.raw_pointer(session.base+0x1d46bd0)
     if binding.get('scene') and manager:
@@ -458,6 +470,7 @@ def run(request_path,destination,prefix):
                 initial=bind(Path(request['apk']))
                 require_idle_lobby(scene_state(initial))
                 break
+            except MapsSnapshotError:raise
             except (FileNotFoundError,subprocess.CalledProcessError,ValueError):
                 if time.monotonic()>=lobby_deadline:raise Cancelled('initial idle lobby not ready; no native task published')
                 status('preparing','等待游戏启动并进入空闲大厅；尚未执行原生任务。')
@@ -665,6 +678,9 @@ def run(request_path,destination,prefix):
     finally:
         if debugger:debugger.close()
         lock.close()
+        diagnostic=maps_diagnostics()
+        if diagnostic and not (destination/'maps-diagnostic.json').exists():
+            write_new(destination/'maps-diagnostic.json',diagnostic)
         for path in sorted(destination.rglob('*'),reverse=True):
             if path.is_symlink():raise ValueError('unexpected link in private replay job')
             os.chown(path,owner.st_uid,owner.st_gid)

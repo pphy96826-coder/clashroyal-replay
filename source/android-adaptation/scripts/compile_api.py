@@ -10,12 +10,16 @@ API={
  public void startActivity(android.content.Intent i){}
  public android.content.ComponentName startForegroundService(android.content.Intent i){return null;}
  public Object getSystemService(String name){return null;}
+ public android.content.ComponentName startService(android.content.Intent i){return null;} public boolean stopService(android.content.Intent i){return false;}
+ public android.content.res.Resources getResources(){return null;}
 }''',
+'android.content.res.Resources': 'public class Resources {public android.util.DisplayMetrics getDisplayMetrics(){return null;}}',
+'android.util.DisplayMetrics': 'public class DisplayMetrics {public int widthPixels,heightPixels; public float density;}',
 'android.content.ComponentName': 'public class ComponentName {}',
 'android.os.IBinder': 'public interface IBinder {}',
 'android.R': 'public final class R {public static final class drawable {public static final int ic_media_play=17301540;}}',
 'android.app.Service': '''public class Service extends android.content.Context {
- public static final int START_NOT_STICKY=2;
+ public static final int START_NOT_STICKY=2; public void onCreate(){}
  public int onStartCommand(android.content.Intent i,int f,int s){return 2;} public android.os.IBinder onBind(android.content.Intent i){return null;}
  public void startForeground(int id,Notification n){} public void stopForeground(boolean remove){} public void stopSelf(){}
  public void onDestroy(){}
@@ -27,7 +31,7 @@ API={
  public Builder setStyle(Style s){return this;}
  public Builder setOngoing(boolean v){return this;} public Notification build(){return null;}
 } public static class Style {} public static class BigTextStyle extends Style {public BigTextStyle(){} public BigTextStyle bigText(CharSequence s){return this;}} }''',
-'android.app.PendingIntent': 'public final class PendingIntent {public static final int FLAG_UPDATE_CURRENT=134217728,FLAG_IMMUTABLE=67108864; public static PendingIntent getActivity(android.content.Context c,int n,android.content.Intent i,int f){return null;} public String getCreatorPackage(){return null;}}',
+'android.app.PendingIntent': 'public final class PendingIntent {public static final int FLAG_UPDATE_CURRENT=134217728,FLAG_IMMUTABLE=67108864; public static PendingIntent getActivity(android.content.Context c,int n,android.content.Intent i,int f){return null;} public static PendingIntent getService(android.content.Context c,int n,android.content.Intent i,int f){return null;} public String getCreatorPackage(){return null;}}',
 'android.app.NotificationChannel': 'public class NotificationChannel {public NotificationChannel(String id,CharSequence name,int importance){}}',
 'android.app.NotificationManager': 'public class NotificationManager {public static final int IMPORTANCE_LOW=2; public void createNotificationChannel(NotificationChannel c){} public void notify(int n,Notification v){}}',
 'android.app.Activity': '''public class Activity extends android.content.Context {
@@ -47,12 +51,13 @@ API={
  public double getDoubleExtra(String name,double fallback){return fallback;}
  public Intent addFlags(int f){return this;} public android.net.Uri getData(){return null;}
  public Intent setData(android.net.Uri u){return this;}
+ public Intent setAction(String a){return this;} public String getAction(){return null;}
 }''',
 'android.net.Uri': 'public class Uri { public String getScheme(){return null;} public String toString(){return "";} public static Uri parse(String s){return null;} }',
 'android.provider.Settings': 'public final class Settings {public static final String ACTION_MANAGE_OVERLAY_PERMISSION="android.settings.action.MANAGE_OVERLAY_PERMISSION"; public static boolean canDrawOverlays(android.content.Context c){return false;}}',
 'android.graphics.PixelFormat': 'public class PixelFormat {public static final int TRANSLUCENT=-3;}',
-'android.view.Gravity': 'public class Gravity {public static final int TOP=48,CENTER_HORIZONTAL=1;}',
-'android.view.WindowManager': '''public interface WindowManager {void addView(View v,ViewGroup.LayoutParams p); void removeView(View v); public static class LayoutParams extends ViewGroup.LayoutParams {public static final int TYPE_APPLICATION_OVERLAY=2038,FLAG_NOT_FOCUSABLE=8,FLAG_NOT_TOUCHABLE=16; public int gravity,x,y; public float alpha; public LayoutParams(int w,int h,int t,int f,int format){super(w,h);}}}''',
+'android.view.Gravity': 'public class Gravity {public static final int TOP=48,CENTER_HORIZONTAL=1,LEFT=3,RIGHT=5,CENTER_VERTICAL=16,CENTER=17;}',
+'android.view.WindowManager': '''public interface WindowManager {void addView(View v,ViewGroup.LayoutParams p); void removeView(View v); void updateViewLayout(View v,ViewGroup.LayoutParams p); public static class LayoutParams extends ViewGroup.LayoutParams {public static final int TYPE_APPLICATION_OVERLAY=2038,FLAG_NOT_FOCUSABLE=8,FLAG_NOT_TOUCHABLE=16,FLAG_NOT_TOUCH_MODAL=32; public int gravity,x,y; public float alpha; public LayoutParams(int w,int h,int t,int f,int format){super(w,h);}}}''',
 'android.net.ConnectivityManager': 'public class ConnectivityManager {public ProxyInfo getDefaultProxy(){return null;}}',
 'android.net.ProxyInfo': 'public class ProxyInfo {public String getHost(){return null;} public int getPort(){return 0;} public Uri getPacFileUrl(){return null;}}',
 'android.net.http.SslError': 'public class SslError {}',
@@ -67,14 +72,20 @@ API={
  public static final int VISIBLE=0,GONE=8; public void setVisibility(int v){}
  public void setEnabled(boolean e){} public void setOnClickListener(OnClickListener l){}
  public interface OnClickListener {void onClick(View v);}
+ public void setOnTouchListener(OnTouchListener l){} public interface OnTouchListener {boolean onTouch(View v,MotionEvent e);}
+ public void setAlpha(float a){} public void setBackground(android.graphics.drawable.Drawable d){} public void setMinimumHeight(int h){} public void setMinimumWidth(int w){}
+ public void setLayoutParams(ViewGroup.LayoutParams p){}
 }''',
-'android.view.ViewGroup': 'public class ViewGroup extends View {public ViewGroup(android.content.Context c){super(c);} public void addView(View v){} public void addView(View v,LayoutParams p){} public static class LayoutParams {public LayoutParams(int w,int h){}} }',
-'android.widget.LinearLayout': 'public class LinearLayout extends android.view.ViewGroup {public LinearLayout(android.content.Context c){super(c);} public void setOrientation(int o){} public static class LayoutParams extends android.view.ViewGroup.LayoutParams {public LayoutParams(int w,int h,float weight){super(w,h);}} }',
+'android.view.MotionEvent': 'public final class MotionEvent {public static final int ACTION_DOWN=0,ACTION_UP=1,ACTION_MOVE=2,ACTION_CANCEL=3; public int getAction(){return 0;} public float getRawX(){return 0;} public float getRawY(){return 0;}}',
+'android.graphics.drawable.Drawable': 'public abstract class Drawable {}',
+'android.graphics.drawable.GradientDrawable': 'public class GradientDrawable extends Drawable {public GradientDrawable(){} public void setColor(int c){} public void setCornerRadius(float r){} public void setStroke(int w,int c){}}',
+'android.view.ViewGroup': 'public class ViewGroup extends View {public ViewGroup(android.content.Context c){super(c);} public void addView(View v){} public void addView(View v,LayoutParams p){} public void removeAllViews(){} public static class LayoutParams {public int width,height; public LayoutParams(int w,int h){}} public static class MarginLayoutParams extends LayoutParams {public MarginLayoutParams(int w,int h){super(w,h);} public void setMargins(int l,int t,int r,int b){}} }',
+'android.widget.LinearLayout': 'public class LinearLayout extends android.view.ViewGroup {public LinearLayout(android.content.Context c){super(c);} public void setOrientation(int o){} public void setGravity(int g){} public static class LayoutParams extends android.view.ViewGroup.MarginLayoutParams {public LayoutParams(int w,int h){super(w,h);} public LayoutParams(int w,int h,float weight){super(w,h);}} }',
 'android.widget.ScrollView': 'public class ScrollView extends android.view.ViewGroup {public ScrollView(android.content.Context c){super(c);} }',
-'android.widget.TextView': 'public class TextView extends android.view.View {public TextView(android.content.Context c){super(c);} public void setText(CharSequence t){} public void setTextSize(float s){} public void setTextColor(int c){} }',
+'android.widget.TextView': 'public class TextView extends android.view.View {public TextView(android.content.Context c){super(c);} public void setText(CharSequence t){} public void setTextSize(float s){} public void setTextColor(int c){} public void setGravity(int g){} public void setMaxLines(int n){} public void setSingleLine(boolean v){} public void setMinHeight(int h){} public void setMinWidth(int w){} }',
 'android.widget.Button': 'public class Button extends TextView {public Button(android.content.Context c){super(c);} }',
 'android.text.Editable': 'public interface Editable extends CharSequence {}',
-'android.widget.EditText': 'public class EditText extends TextView {public EditText(android.content.Context c){super(c);} public void setSingleLine(boolean v){} public android.text.Editable getText(){return null;}}',
+'android.widget.EditText': 'public class EditText extends TextView {public EditText(android.content.Context c){super(c);}public android.text.Editable getText(){return null;}}',
 'android.graphics.Bitmap': 'public class Bitmap {}',
 'android.webkit.ValueCallback': 'public interface ValueCallback<T> {void onReceiveValue(T value);}',
 'android.webkit.SslErrorHandler': 'public class SslErrorHandler {public void cancel(){}}',

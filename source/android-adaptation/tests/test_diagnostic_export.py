@@ -15,13 +15,14 @@ ROOT=Path(__file__).resolve().parents[1]
 class DiagnosticExportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        jdk=Path(os.environ.get('JAVA_HOME','/nonexistent-jdk'))/'bin'
+        jdk_root=os.environ.get('JAVA_HOME');jdk=Path(jdk_root)/'bin' if jdk_root else None
         javac,cls.java=shutil.which('javac'),shutil.which('java')
-        if (jdk/'javac').is_file():javac,cls.java=str(jdk/'javac'),str(jdk/'java')
+        if jdk is not None and (jdk/'javac').is_file():javac,cls.java=str(jdk/'javac'),str(jdk/'java')
         if not javac or not cls.java:raise unittest.SkipTest('JDK required for actual Java export checks')
         cls.build=tempfile.TemporaryDirectory()
         subprocess.run([javac,'-encoding','UTF-8','-d',cls.build.name,
             str(ROOT/'app/src/local/royale/replay/android/DiagnosticExport.java'),
+            str(ROOT/'app/src/local/royale/replay/android/PrivateTaskPaths.java'),
             str(ROOT/'tests/DiagnosticExportCheck.java')],check=True,capture_output=True,timeout=30)
 
     @classmethod
@@ -50,9 +51,12 @@ class DiagnosticExportTests(unittest.TestCase):
         preparation=self.task/'native-preparation';(preparation/'runtime').mkdir(parents=True)
         (preparation/'preparation-calibrated-2.json').write_text('{}')
         (preparation/'runtime/loader-diagnostic.json').write_text('{}')
+        (preparation/'maps-read-diagnostic.json').write_text('{"skipped_rows":0}')
+        (self.task/'maps-diagnostic.json').write_text('{"skipped_rows":0}')
         files=self.export()
         for name in ('task/status.json','task/error.txt','task/deal-check-1-result.json',
                      'task/native-preparation/preparation-calibrated-2.json',
+                     'task/maps-diagnostic.json','task/native-preparation/maps-read-diagnostic.json',
                      'task/native-preparation/runtime/loader-diagnostic.json'):
             self.assertIn(name,files)
         for row in files['SHA256SUMS.txt'].decode().splitlines():
@@ -105,6 +109,45 @@ class DiagnosticExportTests(unittest.TestCase):
         self.assertNotIn('exportDiagnostic.setVisibility',ui)
         self.assertNotIn('PlaybackService',java)
         self.assertNotIn('StandaloneDoctor.root',java)
+
+    def failed_launch(self):
+        (self.task/'status.json').unlink();(self.task/'error.txt').unlink();self.task.rmdir()
+        parent=self.task.parent
+        (parent/'play-process.log').write_text('synthetic executor launch failure')
+        (parent/'play-request.json').write_text('{}')
+        (parent/'source.json').write_text('{}')
+        return parent
+
+    def proven(self,flag=True,hashes=None,manifest=None):
+        hashes=hashes or ['a'*64]*3
+        process=subprocess.run([self.java,'-cp',self.build.name,'local.royale.replay.android.DiagnosticExportCheck',
+            '--proof',str(self.files),str(self.task),str(flag).lower(),*hashes,
+            str(manifest or self.task.parent/'source.json')],check=True,capture_output=True,text=True,timeout=20)
+        return process.stdout.strip()=='true'
+
+    def test_export_failed_launch_includes_parent_log_without_task_directory(self):
+        self.failed_launch();files=self.export()
+        self.assertEqual(files['startup/play-process.log'],b'synthetic executor launch failure')
+        self.assertIn('startup/play-request.json',files)
+        self.assertNotIn('task/status.json',files)
+
+    def test_only_exited_child_marker_and_matching_source_release_missing_task(self):
+        self.failed_launch()
+        self.assertTrue(self.proven())
+        self.assertFalse(self.proven(False))
+        self.assertFalse(self.proven(hashes=['a'*64,'b'*64,'a'*64]))
+
+    def test_existing_task_never_released_by_launch_failure_flag(self):
+        self.assertFalse(self.proven())
+
+    def test_foreign_manifest_not_accepted_by_equal_contents(self):
+        self.failed_launch();foreign=self.root/'foreign.json';foreign.write_text('{}')
+        self.assertFalse(self.proven(manifest=foreign))
+
+    def test_release_gate_is_before_existing_task_directory_read(self):
+        java=(ROOT/'app/src/local/royale/replay/android/NativePython.java').read_text()
+        start=java.index('if(active.isFile()&&!PlaybackStatus.launchFailureReleased(context))')
+        self.assertLess(start,java.index('File directory=PlaybackStatus.activeDirectory(context);',start))
 
 
 if __name__=='__main__':unittest.main()

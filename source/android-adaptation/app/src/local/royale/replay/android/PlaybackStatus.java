@@ -8,10 +8,20 @@ import org.json.JSONObject;
 /** Single phone-native status source; legacy desktop statuses cannot overwrite it. */
 public final class PlaybackStatus {
     static File activeDirectory(Context context)throws Exception{
+        return taskDirectory(context,false);
+    }
+    static File taskDirectory(Context context,boolean allowMissing)throws Exception{
         JSONObject active=new JSONObject(MainActivity.text(new File(context.getFilesDir(),"phone-active.json"),8192));
-        File directory=new File(active.getString("directory"));
-        if(!directory.getCanonicalPath().startsWith(new File(context.getFilesDir(),"local-imports").getCanonicalPath()+File.separator)||!directory.isDirectory())throw new IOException("没有有效的本机任务");
-        return directory;
+        return PrivateTaskPaths.resolve(context.getFilesDir(),new File(active.getString("directory")),allowMissing);
+    }
+    static boolean launchFailureReleased(Context context)throws Exception{
+        JSONObject active=new JSONObject(MainActivity.text(new File(context.getFilesDir(),"phone-active.json"),8192));
+        if(!active.optBoolean("launch_failed_before_native_entry",false))return false;
+        File directory=taskDirectory(context,true),parent=directory.getParentFile();
+        JSONObject request=new JSONObject(MainActivity.text(new File(parent,"play-request.json"),32768));
+        JSONObject source=new JSONObject(MainActivity.text(new File(parent,"source.json"),4*1024*1024));
+        return PrivateTaskPaths.launchFailureProven(directory,true,active.optString("source_sha256",""),
+            request.optString("source_sha256",""),source.optString("source_sha256",""),new File(request.getString("source_manifest")));
     }
     static JSONObject read(Context context)throws Exception{
         JSONObject state=new JSONObject().put("state","idle");
@@ -51,6 +61,14 @@ public final class PlaybackStatus {
                 .put("message","游戏回放进程已结束，控制台已就绪。原始 HTML 和终局记录已保留，可重新选择回放。");
         }catch(FileNotFoundException ignored){}catch(IOException ignored){}
         if(state.optString("state","").equals("released"))state.put("state","idle");
+        try{
+            if(launchFailureReleased(context)){
+                String reason="";File log=new File(taskDirectory(context,true).getParentFile(),"play-process.log");
+                try{String text=MainActivity.text(log,16384).trim();String[] lines=text.split("\\n");reason=lines.length==0?"":lines[lines.length-1];if(reason.length()>240)reason=reason.substring(reason.length()-240);}catch(IOException ignored){}
+                state.put("state","failed_before_native").put("preparation_released",true).put("launch_failure_released",true).put("monitor_active",false)
+                    .put("message","上次本机执行器已在原生执行前退出，未创建战斗任务；已核验并解除启动失败占用。可重新选择回放，不需要清数据或重启游戏。请导出诊断以检查启动原因。"+(reason.isEmpty()?"":"\n启动信息："+reason));
+            }
+        }catch(Exception ignored){/* Missing/inaccessible proof is not permission to release. */}
         return state;
     }
     static boolean releaseMatches(JSONObject state,JSONObject release){
