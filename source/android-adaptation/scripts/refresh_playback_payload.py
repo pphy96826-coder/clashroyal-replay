@@ -21,6 +21,8 @@ def main():
     for name,digest in manifest.items():
         if hashlib.sha256(contents[name]).hexdigest()!=digest:raise ValueError('input member differs: '+name)
     updates={'app/device_playback.py':ROOT/'device/device_playback.py',
+             'app/device_loader.py':ROOT/'device/device_loader.py',
+             'app/device_runtime.py':ROOT/'device/device_runtime.py',
              'app/phone_bootstrap_gate.py':ROOT/'device/phone_bootstrap_gate.py',
              'app/device_build.py':ROOT/'device/device_build.py',
              'app/native-code-contract.json':ROOT/'profiles/native-code-contract.json'}
@@ -30,7 +32,7 @@ def main():
     for name in ('native_bootstrap_probe.cpp','native_scene_probe.cpp','native_tower_check.h','source_execution.h'):
         updates['app/native-src/official-web-replay/'+name]=project/name
     for name,path in updates.items():
-        if name not in manifest and name not in ('app/failure_recovery.py','app/ability_search.py','app/diagnostic_prefix.py'):raise ValueError('unexpected update path: '+name)
+        if name not in manifest and name not in ('app/device_loader.py','app/failure_recovery.py','app/ability_search.py','app/diagnostic_prefix.py'):raise ValueError('unexpected update path: '+name)
         contents[name]=path.read_bytes();manifest[name]=hashlib.sha256(contents[name]).hexdigest()
     contents['runtime-files.json']=json.dumps(manifest,sort_keys=True).encode()
     temporary=package.with_suffix('.new.zip')

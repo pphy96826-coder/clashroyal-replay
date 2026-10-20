@@ -8,7 +8,7 @@ JAVA=ROOT/'app/src/local/royale/replay/android'
 class ConsoleTests(unittest.TestCase):
     def test_main_has_three_primary_and_terminal_contextual_actions(self):
         main=(JAVA/'MainActivity.java').read_text()
-        self.assertEqual(main.count('button(root,'),10)  # Two explicit queue actions.
+        self.assertEqual(main.count('button(root,'),11)  # Queue actions plus read-only diagnostic export.
         self.assertIn('添加多个 HTML 到队列',main)
         self.assertIn('queueImporting',main)
         for old in ('doctor();','localBuild();','fixture();','pairing.json','status-','请求原生播放','等待电脑'):

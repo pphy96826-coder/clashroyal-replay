@@ -8,7 +8,7 @@
   "official-web-replay/mumu_bridge_host.cpp": "849927ecb086ccc1edb52896156a5d90044d66b8a29153793beb7065346def9f",
   "official-web-replay/mumu_smoke_gate.py": "2da40b87d3630a0182cf4a53873daa4e7a37f19acaf0242a8a31ecb14f92d15d",
   "official-web-replay/console_backend.py": "d1fd2cbf4c03435a13ea15a2deb34a025d1c6d04c5784eb0691970ea3b5d9690",
-  "official-web-replay/windows_console.py": "7a2705700f86868ac809701efcf4067e7e2d3748a45ab47de32b805a2dd45e8b",
+  "official-web-replay/windows_console.py": "0b0063279c2fc715e1d9e4db25724dfda9890e30f5998d5db476821476c4c5b1",
   "official-web-replay/build_mumu_worker.py": "a63f5c0ba6f602f04cc37ef80b8db739b24359bdc0628c7d5e0b6a8d5c33ee67",
   "official-web-replay/local_assets.py": "63fbc79f3c17532e00952053a04378ff34d2c37ae95184d6a0fe4f851aca90fb",
   "official-web-replay/desktop_diagnostic.py": "4372718c1ab01e058799ea96984b799f564a25ff5e1d4fd54781bcd9c0be4520",
@@ -85,5 +85,6 @@
   "vendor/native_runner/__init__.py": "7078c46ba7ccc31206dde6ce489657a14761566d3edf8582c85048cad21318f6",
   "vendor/native_runner/card-aliases.json": "9e6ebfe58cc925743c8e16260f33d993ce2fc3a8c5b2d76329b4a3031cdca77d",
   "vendor/native_runner/tools/__init__.py": "7078c46ba7ccc31206dde6ce489657a14761566d3edf8582c85048cad21318f6",
-  "vendor/native_runner/tools/royaleapi_hog_il.py": "26451f63acfbf8a9dc6b9d241d345a8683390918a398f934259708cfdc19895d"
+  "vendor/native_runner/tools/royaleapi_hog_il.py": "26451f63acfbf8a9dc6b9d241d345a8683390918a398f934259708cfdc19895d",
+  "official-web-replay/diagnostic_export.py": "122d61b0eca1e9c4642503e8b9a4dcbaa99707755a011fd226d1227a7cf4e111"
 }

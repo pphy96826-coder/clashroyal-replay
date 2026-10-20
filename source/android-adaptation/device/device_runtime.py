@@ -1,5 +1,4 @@
 """Fresh, phone-local runtime inputs. Only reads installed public resources."""
-import hashlib
 import json
 from pathlib import Path
 import struct
@@ -7,6 +6,7 @@ import zipfile
 
 from device_session import CONTRACT, ReadOnlySession, start_time
 from elf_contract import Elf
+from device_loader import LoaderResolutionError, resolve_loader
 from local_assets import generate
 
 
@@ -68,20 +68,14 @@ def prepare(identity, destination):
             state['battle_present']=bool(session.pointer(domain+0xa8)) if domain else False
             state['pending_request']=struct.unpack('<i',session.read(manager+0x3c,4))[0]
             state['auxiliary_present']=bool(session.pointer(manager+0x20))
-    maps=session.verify().splitlines()
-    loader_path=Path('/apex/com.android.runtime/lib64/bionic/libdl.so')
-    raw=loader_path.read_bytes();elf=Elf(raw)
-    bases=[int(line.split()[0].split('-')[0],16) for line in maps if len(line.split())>=6
-           and line.split()[-1]==str(loader_path) and int(line.split()[2],16)==0]
-    if len(bases)!=1:raise ValueError('system loader mapping is not unique')
-    loader_base=bases[0];exports=elf.exports({'dlopen','dlclose','dlerror'})
-    for pin in exports.values():
-        address=loader_base+int(pin['va'],0)
-        if hashlib.sha256(session.read(address,pin['size'])).hexdigest()!=pin['sha256']:
-            raise ValueError('live loader differs from installed system library')
-        pin['address']=hex(address)
-    loader=dict(identity=identity,library=str(loader_path),library_sha256=hashlib.sha256(raw).hexdigest(),
-                base=hex(loader_base),exports=exports)
+    try:
+        loader,loader_diagnostic=resolve_loader(session,Elf)
+    except LoaderResolutionError as exc:
+        with (destination/'loader-diagnostic.json').open('x') as stream:
+            json.dump(exc.diagnostic,stream,indent=2)
+        raise
+    with (destination/'loader-diagnostic.json').open('x') as stream:
+        json.dump(loader_diagnostic,stream,indent=2)
     if (session.raw_pointer(base+0x1d34ae0)!=root or session.raw_pointer(root+0x20)!=services
             or session.raw_pointer(base+0x1d88820)!=worker or start_time(task.read_text())!=worker_start):
         raise ValueError('public resource or native worker generation changed')

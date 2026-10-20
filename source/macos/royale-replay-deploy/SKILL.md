@@ -30,3 +30,5 @@ For browser capture, read [browser-bridge.md](references/browser-bridge.md). Goo
 ## Verification and delivery
 
 Run `python3 scripts/deploy.py verify-package` and `python3 scripts/validate_payload.py`. Report source validation, local build, device setup and real replay verification as separate outcomes. If installing dependencies requires a download or license acceptance, use official sources and the user's existing network policy; never silently fall back to a direct connection. See `references/deployment.md` for a copyable end-user invocation.
+
+The desktop's “导出诊断…” uses independent read-only `diagnostic_export.py`, not an engine operation. It excludes raw HTML, binaries and browser stores but contains private paths/process/replay records. Share ZIP privately, never in public releases. The illustrated all-platform manual is under `guides/`; iOS local emulation and arbitrary Android VMs remain unverified, not turnkey deployments.

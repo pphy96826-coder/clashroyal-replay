@@ -82,6 +82,7 @@ def main():
     report=deploy.verify_package();payload=deploy.PAYLOAD
     for path in payload.rglob('*'):
         if not path.is_file():continue
+        if '__pycache__' in path.parts:continue  # Local interpreter cache is not a packaged source member.
         if path.suffix in ('.apk','.so','.dylib','.mp4','.mov','.log','.pem'):raise ValueError('runtime/binary material in source package')
         if re.search(rb'/Users/'+rb'[\w.-]+/',path.read_bytes()):raise ValueError('personal home path leaked into payload')
         if path.suffix=='.py':

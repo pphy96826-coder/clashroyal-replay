@@ -89,6 +89,22 @@ def main():
         threading.Thread(target=work,daemon=False).start()
     ttk.Button(tools,text='检查环境（不连接设备）',command=lambda:tool('windows_doctor.py')).pack(side='left')
     ttk.Button(tools,text='准备本机运行时…',command=lambda:tool('prepare_runtime.py')).pack(side='left',padx=10)
+    diagnostic_exporting=False
+    def export_diagnostic():
+        nonlocal diagnostic_exporting
+        if diagnostic_exporting:return
+        if not messagebox.askyesno('导出诊断','只读导出最近任务日志和执行记录，不含原始HTML、游戏APK或浏览器Cookie。\n记录含本机路径、进程信息和解析后的回放数据，请私下发送。不会停止、重试或清理游戏。'):return
+        target=filedialog.asksaveasfilename(defaultextension='.zip',initialfile='回放诊断.zip',filetypes=[('诊断 ZIP','*.zip')])
+        if not target:return
+        diagnostic_exporting=True;diagnostic_button.configure(state='disabled')
+        def work():
+            try:
+                from diagnostic_export import export_diagnostics
+                result=export_diagnostics(ROOT/'console-runs',target)
+                inbox.put(dict(event='diagnostic-exported',value='诊断 ZIP 已保存：'+result['path']+'\n请私下发送；游戏现场未改变。'))
+            except Exception as error:inbox.put(dict(event='diagnostic-exported',value='导出未完成：'+str(error)+'。请换一个新文件名重试，不发送不完整ZIP。'))
+        threading.Thread(target=work,daemon=True).start()
+    diagnostic_button=ttk.Button(tools,text='导出诊断…',command=export_diagnostic);diagnostic_button.pack(side='left',padx=8)
     def play():
         nonlocal running_tool
         try:
@@ -145,10 +161,12 @@ def main():
     output=scrolledtext.ScrolledText(app,font=('Consolas',10),wrap='word');output.pack(fill='both',expand=True,padx=24,pady=10)
     ttk.Label(app,text='实际战场在 MuMu 中显示。网页播放时点击 Edge 工具栏的“RoyaleAPI → 官服回放”插件。').pack(anchor='w',padx=24,pady=(0,14))
     def poll():
-        nonlocal busy,running_tool,pending_play,saved_hash
+        nonlocal busy,running_tool,pending_play,saved_hash,diagnostic_exporting
         while not inbox.empty():
             doc=inbox.get();event=doc.get('event');value=doc.get('value')
-            if event=='busy':
+            if event=='diagnostic-exported':
+                diagnostic_exporting=False;diagnostic_button.configure(state='normal');log(value);messagebox.showinfo('诊断导出',str(value))
+            elif event=='busy':
                 busy=bool(value);play_button.configure(state='disabled' if busy else 'normal')
                 replay_button.configure(state='disabled' if busy else 'normal')
                 if not busy and pending_play:

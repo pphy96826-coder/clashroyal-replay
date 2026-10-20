@@ -19,7 +19,8 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private final Handler handler=new Handler();
     private TextView status,details,sourceLabel,queueLabel;
-    private Button choose,speedButton,watch,stop,replay,exitReplay,removeReplay;
+    private Button choose,speedButton,watch,stop,replay,exitReplay,removeReplay,exportDiagnostic;
+    private volatile boolean exportingDiagnostic;
     private int speedIndex=2;
     private final double[] speeds={.25,.5,1,2,4};
     private volatile boolean importing;
@@ -53,6 +54,7 @@ public final class MainActivity extends Activity {
         replay=button(root,"重放本场",new View.OnClickListener(){public void onClick(View v){finishReplay(true);}});
         exitReplay=button(root,"退出回放",new View.OnClickListener(){public void onClick(View v){finishReplay(false);}});
         removeReplay=button(root,"移除已保存回放",new View.OnClickListener(){public void onClick(View v){confirmRemove();}});
+        exportDiagnostic=button(root,"导出诊断",new View.OnClickListener(){public void onClick(View v){pickDiagnosticDestination();}});
         label(root,"本机独立播放 · 无需电脑\n校验后用悬浮进度卡陪同加载，确认开播后收起。网页仅内置浏览器直连，不改电脑或系统网络。",13,0xff9aaec8);
         try{JSONObject meta=new JSONObject(text(new File(getFilesDir(),"source.json"),8192));sourceLabel.setText("上次导入："+meta.optString("tag","")+" · "+meta.optLong("events",0)+" 条指令");}catch(Exception ignored){}
         handler.post(refresh);
@@ -61,8 +63,36 @@ public final class MainActivity extends Activity {
     private Button button(LinearLayout root,String value,View.OnClickListener listener){Button b=new Button(this);b.setText(value);b.setOnClickListener(listener);root.addView(b);return b;}
     private void pick(){if(!OverlayAccess.ensure(this)){uiNote="请在系统页面允许悬浮进度卡，返回后重新选择 HTML。";return;}Intent intent=new Intent("android.intent.action.OPEN_DOCUMENT");intent.addCategory("android.intent.category.OPENABLE");intent.setType("*/*");intent.addFlags(1);startActivityForResult(intent,41);}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
+        if(request==43){if(result==RESULT_OK&&data!=null&&data.getData()!=null)exportDiagnostic(data.getData());else{uiNote="已取消导出诊断；原始记录未改变。";updateStatus();}return;}
         if(request==42&&result==RESULT_OK&&data!=null){importQueue(data);return;}
         if(request==41&&result==RESULT_OK&&data!=null&&data.getData()!=null)importUri(data.getData());}
+    private void pickDiagnosticDestination(){
+        if(exportingDiagnostic)return;
+        new AlertDialog.Builder(this).setTitle("导出当前任务诊断？")
+            .setMessage("仅导出本控制台的错误、牌序与组件记录，不包含原始 HTML、游戏 APK 或浏览器 Cookie。记录含本机路径和进程信息，请只私下发送。不会清理、停止或重新播放游戏。建议保存在本机 Download 文件夹。")
+            .setNegativeButton("取消",null).setPositiveButton("选择保存位置",new DialogInterface.OnClickListener(){public void onClick(DialogInterface dialog,int which){try{
+                Intent intent=new Intent("android.intent.action.CREATE_DOCUMENT");intent.addCategory("android.intent.category.OPENABLE");
+                intent.setType("application/zip").putExtra("android.intent.extra.TITLE","回放诊断-"+System.currentTimeMillis()+".zip").addFlags(2);
+                startActivityForResult(intent,43);
+            }catch(Exception error){uiNote="无法打开保存窗口："+error.getMessage();updateStatus();}}}).show();
+    }
+    private void exportDiagnostic(final Uri uri){
+        if(exportingDiagnostic)return;
+        if(!"content".equals(uri.getScheme())){uiNote="导出失败：仅接受系统保存窗口授权的位置。";updateStatus();return;}
+        exportingDiagnostic=true;exportDiagnostic.setEnabled(false);exportDiagnostic.setText("正在导出诊断…");
+        new Thread(new Runnable(){public void run(){String message;try{
+            File active=null;try{active=PlaybackStatus.activeDirectory(MainActivity.this);}catch(Exception ignored){}
+            String environment="Android SDK: unknown; ABIs: unknown";
+            try{environment="Android SDK: "+Class.forName("android.os.Build$VERSION").getField("SDK_INT").get(null)
+                +"; ABIs: "+Arrays.toString((String[])Class.forName("android.os.Build").getField("SUPPORTED_ABIS").get(null));}catch(Exception ignored){}
+            OutputStream stream=getContentResolver().openOutputStream(uri,"wt");if(stream==null)throw new IOException("保存位置不可写");
+            int count;try(OutputStream output=stream){count=DiagnosticExport.write(getFilesDir(),active,output,environment);}
+            message="诊断 ZIP 已保存（"+count+" 份记录）。请从所选文件夹私下发送；游戏现场未改变。";
+        }catch(Exception error){message="导出未完成："+error.getMessage()+"。可能留下不完整 ZIP，请勿发送；原始记录未改变，可重新导出。";}
+        final String note=message;runOnUiThread(new Runnable(){public void run(){exportingDiagnostic=false;if(closed)return;exportDiagnostic.setEnabled(true);exportDiagnostic.setText("导出诊断");uiNote=note;updateStatus();
+            new AlertDialog.Builder(MainActivity.this).setTitle("诊断导出").setMessage(note).setPositiveButton("知道了",null).show();}});
+        }}).start();
+    }
     private void pickQueue(){
         if(queueImporting)return;
         Intent intent=new Intent("android.intent.action.OPEN_DOCUMENT");intent.addCategory("android.intent.category.OPENABLE");

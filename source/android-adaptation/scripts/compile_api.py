@@ -56,7 +56,7 @@ API={
 'android.net.ConnectivityManager': 'public class ConnectivityManager {public ProxyInfo getDefaultProxy(){return null;}}',
 'android.net.ProxyInfo': 'public class ProxyInfo {public String getHost(){return null;} public int getPort(){return 0;} public Uri getPacFileUrl(){return null;}}',
 'android.net.http.SslError': 'public class SslError {}',
-'android.content.ContentResolver': 'public class ContentResolver {public java.io.InputStream openInputStream(android.net.Uri u)throws java.io.FileNotFoundException{return null;}}',
+'android.content.ContentResolver': 'public class ContentResolver {public java.io.InputStream openInputStream(android.net.Uri u)throws java.io.FileNotFoundException{return null;} public java.io.OutputStream openOutputStream(android.net.Uri u,String mode)throws java.io.FileNotFoundException{return null;}}',
 'android.content.res.AssetManager': 'public class AssetManager {public java.io.InputStream open(String n)throws java.io.IOException{return null;}}',
 'android.content.pm.PackageManager': 'public class PackageManager {public android.content.Intent getLaunchIntentForPackage(String p){return null;} public ApplicationInfo getApplicationInfo(String p,int f)throws NameNotFoundException{return null;} public static class NameNotFoundException extends Exception {}}',
 'android.content.pm.ApplicationInfo': 'public class ApplicationInfo {public String sourceDir; public String nativeLibraryDir;}',

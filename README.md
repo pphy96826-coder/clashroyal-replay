@@ -1,5 +1,16 @@
 # Clash Royale HTML 回放：Android / macOS / Windows
 
+## 最新：2026-10-19 hotfix3 · 三平台同步
+
+[下载本次更新](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261019-hotfix3) · [完整图文教程](docs/全平台安装教程.md) · [离线 HTML](docs/全平台安装教程.html) · [PDF 手册](docs/全平台安装教程.pdf)
+
+- Android：`2026.10.19-hotfix3`，新增不依赖 Root 文件管理器的“导出诊断”；保留路径别名、准备失败解锁及 ELF 系统加载库核验。覆盖安装，不清数据。
+- macOS / Windows：同步“导出诊断…”入口，只读打包最近任务及其引用的组件记录，不启动或重试回放；保留各平台专用连接层，Windows 继续使用 MuMu 翻译运行时。
+- 新发布提供 APK、安卓完整资料、Mac ZIP/Skill、Windows 小更新、统一图文教程与校验和；原 Windows 完整环境继续保留。
+- 教程覆盖 Root 安卓、非 Root 安卓虚拟机验收、电脑部署、手机远程观看和 iOS 模拟研究边界。没有可保证独立播放的 iOS 包，也不保证任意手机虚拟机兼容。
+
+诊断 ZIP 不含原始 HTML、游戏二进制或浏览器 Cookie，但含本机路径、进程信息和解析后的回放记录，只能私下分享。新增导出不代表旧组件占用、牌序分歧或渲染问题均已修复。Windows新版与朋友手机的完整播放仍须分别验收。
+
 ## 2026-10-19 同步更新
 
 新版三平台资源见 [Releases](https://github.com/pphy96826-coder/clashroyal-replay/releases)。本次同步回放队列、等级支持、技能分支诊断、原生塔血校验与失败恢复。详见 [更新说明与验证范围](docs/更新说明-20261019.md)。

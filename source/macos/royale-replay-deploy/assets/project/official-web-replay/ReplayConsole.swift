@@ -20,6 +20,7 @@ final class ReplayConsole: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var savedSHA: String?
     let addQueue = NSButton(title: "添加多个 HTML 到队列…", target: nil, action: nil)
     let nextQueue = NSButton(title: "播放下一个", target: nil, action: nil)
+    let exportDiagnostic = NSButton(title: "导出诊断…", target: nil, action: nil)
     let queueInfo = NSTextField(labelWithString: "队列为空")
     var browserObject: AnyObject?
     var worker: Process?
@@ -62,6 +63,7 @@ final class ReplayConsole: NSObject, NSApplicationDelegate, NSWindowDelegate {
         removeSaved.target = self; removeSaved.action = #selector(removeSelection)
         addQueue.target = self; addQueue.action = #selector(enqueueHTML)
         nextQueue.target = self; nextQueue.action = #selector(playNext)
+        exportDiagnostic.target = self; exportDiagnostic.action = #selector(exportRecords)
         replaySaved.isEnabled = false; removeSaved.isEnabled = false
         play.isEnabled = false; stop.isEnabled = false
         speed.addItems(withTitles: ["0.25×", "0.5×", "1×", "2×", "4×"]); speed.selectItem(at: 2)
@@ -70,6 +72,7 @@ final class ReplayConsole: NSObject, NSApplicationDelegate, NSWindowDelegate {
         choose.setContentHuggingPriority(.required, for: .horizontal)
         let controls = NSStackView(views: [play, stop, NSTextField(labelWithString: "播放倍速"), speed, browse]); controls.spacing = 12
         let savedControls = NSStackView(views: [replaySaved, removeSaved, addQueue, nextQueue]); savedControls.spacing = 12
+        let diagnosticControls = NSStackView(views: [exportDiagnostic]); diagnosticControls.spacing = 12
         progress.isIndeterminate = true; progress.style = .bar
         status.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         status.lineBreakMode = .byWordWrapping; status.maximumNumberOfLines = 3
@@ -84,7 +87,7 @@ final class ReplayConsole: NSObject, NSApplicationDelegate, NSWindowDelegate {
         log.textContainer?.widthTracksTextView = true; scroll.documentView = log
         let note = NSTextField(wrappingLabelWithString: "不修改网络 · 不开启新模拟器 · 不覆盖其他对局 · 网页浏览仅使用现有代理\n按 HTML 加载塔楼部队与合法等级；缺省国王塔与同方塔楼等级一致。游戏内可暂停/继续。\n歧义技能搜索至多256个候选；终局塔血匹配仅代表推断匹配。录像与客户端平衡参数不同可能导致差异。")
         note.font = NSFont.systemFont(ofSize: 11); note.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [title, subtitle, fileRow, controls, savedControls, queueInfo, status, progress, match, scroll, note])
+        let stack = NSStackView(views: [title, subtitle, fileRow, controls, savedControls, diagnosticControls, queueInfo, status, progress, match, scroll, note])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false; container.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -217,6 +220,36 @@ final class ReplayConsole: NSObject, NSApplicationDelegate, NSWindowDelegate {
         status.stringValue = "失败：" + text; append(status.stringValue)
         let alert = NSAlert(); alert.messageText = "回放未启动"; alert.informativeText = text
         alert.beginSheetModal(for: window)
+    }
+
+    @objc func exportRecords() {
+        let warning = NSAlert(); warning.messageText = "导出本机诊断？"
+        warning.informativeText = "只读导出最近任务的日志和执行记录，不含原始 HTML、游戏 APK 或浏览器 Cookie。含本机路径、进程信息和解析后的回放数据，请私下发送。不会停止、重试或清理游戏。"
+        warning.addButton(withTitle: "选择保存位置"); warning.addButton(withTitle: "取消")
+        guard warning.runModal() == .alertFirstButtonReturn else { return }
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = "回放诊断-\(Int(Date().timeIntervalSince1970)).zip"
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            self.exportDiagnostic.isEnabled = false
+            let python = Bundle.main.object(forInfoDictionaryKey: "RoyalePython") as? String ?? "/usr/bin/python3"
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process(); process.executableURL = URL(fileURLWithPath: python)
+                process.arguments = [sourceRoot + "/diagnostic_export.py", "--store", sourceRoot + "/console-runs", "--output", url.path]
+                let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
+                var message: String
+                do {
+                    try process.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+                    message = process.terminationStatus == 0 ? "诊断 ZIP 已保存：\(url.path)\n请私下发送；游戏现场未改变。" : "导出未完成，请换一个新文件名重试。\n" + String(decoding: data.suffix(1800), as: UTF8.self)
+                } catch { message = "导出未完成：\(error.localizedDescription)" }
+                let result = message
+                DispatchQueue.main.async {
+                    self.exportDiagnostic.isEnabled = true; self.append(result)
+                    let alert = NSAlert(); alert.messageText = "诊断导出"; alert.informativeText = result
+                    alert.addButton(withTitle: "知道了"); alert.beginSheetModal(for: self.window)
+                }
+            }
+        }
     }
 
     @objc func pick() {

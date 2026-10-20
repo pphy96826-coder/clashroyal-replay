@@ -2,7 +2,7 @@
   "schema": "royale-replay-skill.payload.v1",
   "files": {
     "official-web-replay/ReplayBridge.swift": "e8e87842b48910dd2804d082cc69f3971aadf17eff06253394f3c9f0af09f87c",
-    "official-web-replay/ReplayConsole.swift": "df9a1e37e9766e1145e30616da78ea8a921939b87593170ef9a2f4340f323c2f",
+    "official-web-replay/ReplayConsole.swift": "e3e338bb139ed2db489fc134c55875dfb3ef2b992525a24271e56cf2fab508ce",
     "official-web-replay/RoyaleBrowser.swift": "cb932c735074870ed844f04688681a1f7f9be26cdf32e5fab4ef30c6d4b15435",
     "official-web-replay/ability_search.py": "b576bd878c0c93424344a8c78957e37008dcd6580847ac07222e8db14ff34011",
     "official-web-replay/adb_discovery.py": "340103d9180689f035080c296ab0e6b2b87eb04e89a961ff0f56b205364dbd2c",
@@ -22,6 +22,7 @@
     "official-web-replay/deploy_bootstrap_probe.py": "03d76592a55be25c3990aaa88da148f02677144e847f37af6e3914ef638c2abc",
     "official-web-replay/desktop_diagnostic.py": "4372718c1ab01e058799ea96984b799f564a25ff5e1d4fd54781bcd9c0be4520",
     "official-web-replay/desktop_worker.py": "6cdfca0a576f733aee71b1937e174f4aabe4fffeb4af9c8ede0a75fae719d7f2",
+    "official-web-replay/diagnostic_export.py": "122d61b0eca1e9c4642503e8b9a4dcbaa99707755a011fd226d1227a7cf4e111",
     "official-web-replay/diagnostic_prefix.py": "4cd8302f6074422d77d7a98c8fa39d271704fd2b62de29ad9f2f0e5008841d6a",
     "official-web-replay/elf_contract.py": "84fc88fc9c82aed4e41c27dcd7abeabdadc133193690765bfeebe1da30e4d21f",
     "official-web-replay/failure_recovery.py": "f4c77219c1dea48335e014d1fc893ba888b07224a423d14618b1a166acd79a54",
