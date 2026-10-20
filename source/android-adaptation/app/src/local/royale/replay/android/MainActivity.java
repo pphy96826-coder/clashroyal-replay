@@ -29,6 +29,7 @@ public final class MainActivity extends Activity {
     private volatile boolean finishing,reconciling;
     private long nextReconcile;
     private String uiNote="";
+    private volatile String reconciliationNote="";
     private PlaybackHandoff handoff;
     private final Runnable refresh=new Runnable(){public void run(){if(!closed){updateStatus();handler.postDelayed(this,1000);}}};
 
@@ -130,7 +131,8 @@ public final class MainActivity extends Activity {
     private void updateStatus(){
         try{
             JSONObject state=PlaybackStatus.read(this);
-            if(!importing){status.setText(PlaybackStatus.title(state));details.setText(PlaybackStatus.detail(state,System.currentTimeMillis()/1000)+(uiNote.isEmpty()?"":"\n"+uiNote));}
+            if(!PlaybackStatus.ownsTask(state))reconciliationNote="";
+            if(!importing){status.setText(PlaybackStatus.title(state));details.setText(PlaybackStatus.detail(state,System.currentTimeMillis()/1000)+(uiNote.isEmpty()?"":"\n"+uiNote)+(reconciliationNote.isEmpty()?"":"\n"+reconciliationNote));}
             boolean active=PlaybackStatus.ownsTask(state);
             boolean complete=state.optString("state","").equals("complete");
             org.json.JSONArray queued=ReplayQueue.rows(getFilesDir());
@@ -154,7 +156,7 @@ public final class MainActivity extends Activity {
     private void reconcile(final JSONObject state){
         if(importing||finishing||reconciling||PlaybackService.isBusy()||!PlaybackStatus.ownsTask(state)||System.currentTimeMillis()<nextReconcile)return;
         nextReconcile=System.currentTimeMillis()+5000;reconciling=true;
-        new Thread(new Runnable(){public void run(){try{NativePython.reconcileReleased(MainActivity.this,state);}catch(Exception ignored){/* Unknown is not process exit. */}finally{reconciling=false;}}}).start();
+        new Thread(new Runnable(){public void run(){try{NativePython.reconcileReleased(MainActivity.this,state);reconciliationNote="";}catch(Exception error){reconciliationNote="旧任务核验失败："+error.getMessage()+"；现场保留，未重复提交。";}finally{reconciling=false;}}}).start();
     }
     private void finishReplay(final boolean again){
         if(finishing||PlaybackService.isBusy())return;

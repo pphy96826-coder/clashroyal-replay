@@ -234,6 +234,32 @@ def diagnostic_bundle(request, files):
     return value
 
 
+def checked_source_manifest(request_path,value):
+    """Bind to this job's actual file, including Android bind-mount aliases."""
+    supplied=Path(value)
+    expected=request_path.parent/'source.json'
+    if supplied.name!='source.json' or not supplied.is_file() or not expected.is_file() or not supplied.samefile(expected):
+        raise ValueError('invalid source manifest: 文件不属于当前导入任务；未执行原生操作')
+    # Use our private sibling, not an arbitrary caller-provided path spelling.
+    return expected
+
+
+def record_pre_native_release(directory,files,source_sha256):
+    """Called while holding the operation lock, before any native publication."""
+    active=read(files/'phone-active.json')
+    active_path=Path(active['directory'])
+    state=read(directory/'status.json')
+    if (not active_path.is_dir() or not active_path.samefile(directory)
+            or active.get('source_sha256')!=source_sha256 or state.get('source_sha256')!=source_sha256
+            or state.get('native_entry_started') is not False
+            or state.get('state') not in ('failed_before_native','cancelled')
+            or (directory/'native-entry.json').exists()):
+        raise ValueError('pre-native release ownership is unproven')
+    write_new(directory/'preparation-release.json',dict(native_not_entered=True,
+        source_sha256=source_sha256,status_sha256=hashlib.sha256((directory/'status.json').read_bytes()).hexdigest(),
+        updated_at=time.time(),reason=state.get('message',''),operation_lock_held=True))
+
+
 def stop_owned(identity,scene,component,*,reopen=True):
     """Only after the user explicitly clicks 'restart game to stop replay'."""
     session=ReadOnlySession(identity);base=session.base
@@ -316,7 +342,8 @@ def finish_completed(binding_path,destination,prefix):
     if str(uuid.UUID(destination.parent.name))!=destination.parent.name:raise ValueError('not a fresh explicit cleanup action')
     files=next(p for p in directory.parents if p.name=='files')
     active=read(files/'phone-active.json')
-    if Path(active['directory']).resolve()!=directory.resolve():raise ValueError('not the current replay')
+    active_path=Path(active['directory'])
+    if not active_path.is_dir() or not active_path.samefile(directory):raise ValueError('not the current replay')
     destination.mkdir(mode=0o700,exist_ok=False);owner=directory.stat()
     try:
         with (files/'phone-operation.lock').open('a+') as lock:
@@ -351,14 +378,16 @@ def release_preparation(directory,destination,prefix):
     before the first native probe. Missing PID alone is NOT release evidence.
     """
     files=next(p for p in directory.parents if p.name=='files')
-    if directory.name!='phone-playback' or not directory.resolve().is_relative_to((files/'local-imports').resolve()):
+    if (directory.name!='phone-playback' or directory.parent.name!='result'
+            or not directory.parent.parent.parent.samefile(files/'local-imports')):
         raise ValueError('not a local replay task')
     if destination.parent.parent!=directory or destination.name!='preparation-release' or str(uuid.UUID(destination.parent.name))!=destination.parent.name:
         raise ValueError('not a fresh preparation release')
     with (files/'phone-operation.lock').open('a+') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         active=read(files/'phone-active.json')
-        if Path(active['directory']).resolve()!=directory.resolve():raise ValueError('active task changed')
+        active_path=Path(active['directory'])
+        if not active_path.is_dir() or not active_path.samefile(directory):raise ValueError('active task changed')
         state=read(directory/'status.json')
         if state.get('state') not in ('needs_review','failed_before_native','cancelled'):raise ValueError('not a failed preparation')
         # Binding/build artifacts or the durable entry marker require the normal
@@ -406,13 +435,14 @@ def run(request_path,destination,prefix):
     debugger=None
     completed=False
     last_attempt=None
+    lock_acquired=False
     try:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        lock_acquired=True
         request=read(request_path)
         diagnostic=diagnostic_bundle(request,files)
         context['source_sha256']=request['source_sha256']
-        source=Path(request['source_manifest']).resolve()
-        if not source.is_relative_to(request_path.parent.resolve()) or source.name!='source.json':raise ValueError('invalid source manifest')
+        source=checked_source_manifest(request_path,request['source_manifest'])
         if request['source_sha256']!=read(source)['source_sha256']:raise ValueError('source request differs')
         speed=request['speed']
         if type(speed) not in (int,float) or speed not in (.25,.5,1,2,4):raise ValueError('invalid playback speed')
@@ -617,6 +647,8 @@ def run(request_path,destination,prefix):
         else:
             if not context['native_entry_started']:
                 status('failed_before_native','准备失败，尚未进入原生执行：'+str(sys.exception())+'。可选择其他 HTML；不会自动重试。',monitor_active=False)
+                if lock_acquired and context.get('source_sha256'):
+                    record_pre_native_release(destination,files,context['source_sha256'])
             else:
                 from failure_recovery import explanation
                 cause=explanation(sys.exception())

@@ -63,7 +63,8 @@ public final class PlaybackStatus {
         File proof=new File(directory,"preparation-release.json");if(!proof.isFile())return false;
         JSONObject active=new JSONObject(MainActivity.text(new File(context.getFilesDir(),"phone-active.json"),8192));
         JSONObject release=new JSONObject(MainActivity.text(proof,8192));
-        return directory.getAbsolutePath().equals(active.optString("directory",""))&&release.optBoolean("native_not_entered",false)
+        File current=new File(active.optString("directory",""));
+        return current.isDirectory()&&java.nio.file.Files.isSameFile(directory.toPath(),current.toPath())&&release.optBoolean("native_not_entered",false)
             &&active.optString("source_sha256","").equals(release.optString("source_sha256","missing"))
             &&MainActivity.sha(MainActivity.read(new FileInputStream(new File(directory,"status.json")),32768)).equals(release.optString("status_sha256",""));
     }

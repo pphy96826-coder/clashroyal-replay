@@ -275,7 +275,11 @@ public final class NativePython {
             +" release-preparation "+quoted(root.getAbsolutePath())+" "+quoted(directory.getAbsolutePath())+" "+quoted(new File(action,"preparation-release").getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
         StandaloneDoctor.Output result=StandaloneDoctor.root(command,30);
         MainActivity.write(new File(action,"process-output.txt"),result.text.getBytes(StandardCharsets.UTF_8));
-        if(result.code!=0)throw new IOException("准备失败现场未能安全核验；诊断记录保留，未修改游戏");
+        if(result.code!=0){
+            String[] lines=result.text.trim().split("\\n");String reason=lines.length>0?lines[lines.length-1]:"无执行器输出";
+            if(reason.length()>240)reason=reason.substring(reason.length()-240);
+            throw new IOException("准备失败现场未能安全核验（"+result.code+"）："+reason+"；诊断记录保留，未修改游戏");
+        }
     }
     static synchronized void finishCompleted(Context context,JSONObject expected)throws Exception{
         if(PlaybackService.isBusy())throw new IOException("正在收尾，请稍后再点重放或退出");
