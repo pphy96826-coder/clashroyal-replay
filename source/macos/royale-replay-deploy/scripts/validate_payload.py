@@ -18,6 +18,7 @@ import sys,json,copy,hashlib,ast,os
 from pathlib import Path
 root=Path(sys.argv[1]);sys.path[:0]=[str(root/'official-web-replay'),str(root/'vendor')]
 import console_backend,desktop_worker,bridge_queue,build_bootstrap_probe,deploy_bootstrap_probe
+assert callable(getattr(console_backend.Player,'observation',None)), 'fresh client observation method missing'
 import observe_card_levels,observe_current_client,observe_tower_catalog,prepare_runtime
 from native_runner.royaleapi_replay import resolve_native_card
 from native_runner.tools.royaleapi_hog_il import parse_royaleapi_replay_html

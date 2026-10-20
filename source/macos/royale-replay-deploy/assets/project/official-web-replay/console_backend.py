@@ -394,6 +394,12 @@ class Player:
             except (ValueError,RuntimeError):time.sleep(1)
         self.emit('lobby-ready','游戏已自动重新打开'+('并确认回到大厅。' if ready else '，请等待启动加载或登录。')+'客户端使用安全重启兜底；可选择下一场。')
         return dict(client_reopened=True,lobby_verified=ready,seamless=False)
+
+    def observation(self):
+        """Always obtain a fresh generation; never reuse a previous native owner."""
+        self.checkpoint()
+        if self.folder is None:self.new_folder()
+        path=self.folder/('client-'+uuid.uuid4().hex+'.json')
         self.command('observe_current_client.py', '--output', path)
         doc = read_json(path)
         serial=doc['identity']['serial']

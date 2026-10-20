@@ -18,7 +18,7 @@
     "official-web-replay/cache_lease.h": "331d6781c3da9a89fca13adf8f76844d9de1ee7af21caccd14bda748baf311d7",
     "official-web-replay/client_session.py": "e2b94a92264adac0b160ba020a45a8248514ccb5f447adf013c9b05fdbdc087e",
     "official-web-replay/compare_native_result.py": "5d2977fb46d13994072fa451d5f52dc3033e3e5656fb98f8808312c18916cab3",
-    "official-web-replay/console_backend.py": "53b48e85869a61587cc1e374737f698098ee093ab0f20a6049db3abb70a82f1a",
+    "official-web-replay/console_backend.py": "10cf295d56d945be12607454ca2d5bb74ae54e7b678324ec8ae82c4609fc5f22",
     "official-web-replay/deploy_bootstrap_probe.py": "03d76592a55be25c3990aaa88da148f02677144e847f37af6e3914ef638c2abc",
     "official-web-replay/desktop_diagnostic.py": "4372718c1ab01e058799ea96984b799f564a25ff5e1d4fd54781bcd9c0be4520",
     "official-web-replay/desktop_worker.py": "6cdfca0a576f733aee71b1937e174f4aabe4fffeb4af9c8ede0a75fae719d7f2",
