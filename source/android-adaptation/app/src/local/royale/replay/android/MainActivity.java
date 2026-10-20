@@ -103,19 +103,19 @@ public final class MainActivity extends Activity {
     private void importQueue(final Intent data){
         if(queueImporting)return;queueImporting=true;
         new Thread(new Runnable(){public void run(){String message;try{
-            message="已加入队列 "+ReplayQueue.importFrom(MainActivity.this,data)+" 场";
+            message="已加入队列 "+ReplayQueue.importFrom(MainActivity.this,data)+" 场；会自动提前准备第一场。";
         }catch(Exception e){message=e.getMessage();}
+            ConsoleActions.autoPrepare(MainActivity.this);
             final String note=message;
             runOnUiThread(new Runnable(){public void run(){queueImporting=false;uiNote=note;updateStatus();}});
         }}).start();
     }
     private void playNext(){
-        if(finishing||PlaybackService.isBusy())return;
+        if(finishing||(PlaybackService.isBusy()&&!PlaybackService.armedIdle()))return;
         if(!OverlayAccess.ensure(this))return;
         finishing=true;
         new Thread(new Runnable(){public void run(){try{
-            ConsoleActions.playNext(MainActivity.this);
-            uiNote="已请求队列下一场；先完成场景校验，不重复提交原生任务。";
+            uiNote=ConsoleActions.playNext(MainActivity.this);
         }catch(Exception e){uiNote="下一场未开始："+e.getMessage();}finally{finishing=false;}}}).start();
     }
     private void toggleFloating(){
@@ -153,27 +153,28 @@ public final class MainActivity extends Activity {
         try{
             JSONObject state=PlaybackStatus.read(this);
             if(!PlaybackStatus.ownsTask(state))reconciliationNote="";
-            if(!importing){status.setText(PlaybackStatus.title(state));details.setText(PlaybackStatus.detail(state,System.currentTimeMillis()/1000)+(uiNote.isEmpty()?"":"\n"+uiNote)+(reconciliationNote.isEmpty()?"":"\n"+reconciliationNote));}
+            String[] early=ConsoleActions.earlyStatus(state);
+            if(!importing){status.setText(early!=null?early[0]:PlaybackStatus.title(state));details.setText((early!=null?early[1]:PlaybackStatus.detail(state,System.currentTimeMillis()/1000))+(uiNote.isEmpty()?"":"\n"+uiNote)+(reconciliationNote.isEmpty()?"":"\n"+reconciliationNote));}
             boolean active=PlaybackStatus.ownsTask(state);
             boolean complete=state.optString("state","").equals("complete");
             org.json.JSONArray queued=ReplayQueue.rows(getFilesDir());
             queueLabel.setText("队列待播："+queued.length()+" 场"+(queued.length()>0?" · 下一场 "+queued.getJSONObject(0).optString("tag","")+(queued.getJSONObject(0).optBoolean("diagnostic_only",false)?"（未完成诊断预览）":""):"")+(queueImporting?" · 后台解析中":""));
             nextQueue.setEnabled(queued.length()>0&&!importing&&!finishing&&ConsoleActions.canPlayNext(state));
-            boolean editable=!finishing&&!ConsoleActions.starting();String shown=queued.toString()+editable;
-            if(!shown.equals(queueShown)){queueShown=shown;QueueRows.render(this,queueRows,queued,editable,new QueueRows.Listener(){public void changed(String message){uiNote=message;queueShown=null;updateStatus();}});}
+            boolean editable=!finishing&&!ConsoleActions.starting();java.util.Map<String,String> statuses=ConsoleActions.rowStatus(this,queued);String shown=queued.toString()+editable+statuses;
+            if(!shown.equals(queueShown)){queueShown=shown;QueueRows.render(this,queueRows,queued,statuses,false,editable,new QueueRows.Listener(){public void changed(String message){uiNote=message;queueShown=null;updateStatus();}});}
             speedButton.setText(ConsoleActions.speedLabel());
             floating.setText(FloatingConsole.running()?"关闭游戏内悬浮控制台":"开启游戏内悬浮控制台");
             JSONObject saved=SavedReplay.metadata(getFilesDir());
             sourceLabel.setText(saved==null?"尚未选择回放":"已保存回放："+saved.optString("tag","")+" · "+saved.optLong("events",0)+" 条指令"
                 +(active?"\n当前任务："+(saved.optString("sha256","").equals(state.optString("source_sha256",""))?"与已保存回放相同":"另一份 HTML；不会被新文件覆盖"):""));
             watch.setVisibility(active?View.VISIBLE:View.GONE);
-            stop.setVisibility(PlaybackStatus.canStop(state,System.currentTimeMillis()/1000)?View.VISIBLE:View.GONE);
+            stop.setVisibility(PlaybackStatus.canStop(state,System.currentTimeMillis()/1000)&&!PlaybackService.armedIdle()?View.VISIBLE:View.GONE);
             replay.setText(complete?"重放本场":"重放已保存回放");
             replay.setVisibility((complete||saved!=null)?View.VISIBLE:View.GONE);exitReplay.setVisibility(complete?View.VISIBLE:View.GONE);
-            replay.setEnabled(!importing&&!finishing&&!PlaybackService.isBusy()&&(complete||!active));exitReplay.setEnabled(!finishing&&!PlaybackService.isBusy());
+            replay.setEnabled(!importing&&!finishing&&(PlaybackService.armedIdle()||(!PlaybackService.isBusy()&&(complete||!active))));exitReplay.setEnabled(!finishing&&!PlaybackService.isBusy());
             removeReplay.setVisibility(saved!=null?View.VISIBLE:View.GONE);removeReplay.setEnabled(!importing&&!finishing&&!PlaybackService.isBusy());
             choose.setEnabled(!importing&&!finishing&&!PlaybackService.isBusy());
-            speedButton.setEnabled(!finishing&&!PlaybackService.isBusy());
+            speedButton.setEnabled(!finishing&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));
             reconcile(state);
             handoff.check();
         }catch(Exception e){if(!importing)status.setText("状态暂不可读；不会自动重试回放。");}
@@ -184,29 +185,13 @@ public final class MainActivity extends Activity {
         new Thread(new Runnable(){public void run(){try{NativePython.reconcileReleased(MainActivity.this,state);reconciliationNote="";}catch(Exception error){reconciliationNote="旧任务核验失败："+error.getMessage()+"；现场保留，未重复提交。";}finally{reconciling=false;}}}).start();
     }
     private void finishReplay(final boolean again){
-        if(finishing||PlaybackService.isBusy())return;
+        if(finishing||(PlaybackService.isBusy()&&!(again&&PlaybackService.armedIdle())))return;
         finishing=true;uiNote=again?"正在安全释放本场回放，随后重新播放…":"正在安全退出回放…";
-        new Thread(new Runnable(){public void run(){try{
-            final JSONObject state=PlaybackStatus.read(MainActivity.this);
-            boolean complete=state.optString("state","").equals("complete");
-            final byte[] source;
-            if(complete){
-                File directory=PlaybackStatus.activeDirectory(MainActivity.this);
-                source=again?read(new FileInputStream(new File(directory.getParentFile().getParentFile(),"input.html")),ReplaySource.MAX_BYTES):null;
-                if(again&&!sha(source).equals(state.optString("source_sha256","")))throw new IOException("本场原始 HTML 校验不符，未使用其他文件重放");
-                NativePython.finishCompleted(MainActivity.this,state);
-                if(again)PlaybackService.openGame(MainActivity.this);
-            }else{
-                if(!again||PlaybackStatus.ownsTask(state))throw new IOException("旧任务仍需安全核验，未覆盖游戏现场");
-                JSONObject saved=SavedReplay.metadata(getFilesDir());
-                if(saved==null)throw new IOException("没有已保存回放");
-                source=SavedReplay.load(getFilesDir(),saved.getString("sha256"));
-            }
-            runOnUiThread(new Runnable(){public void run(){try{
-                uiNote="";
-                if(again){PlaybackService.begin(MainActivity.this,source,ConsoleActions.speed(),true);}
-            }catch(Exception e){uiNote="未开始重放："+e.getMessage();}finally{finishing=false;updateStatus();}}});
-        }catch(final Exception e){runOnUiThread(new Runnable(){public void run(){finishing=false;uiNote="未操作回放："+e.getMessage();updateStatus();}});}}}).start();
+        new Thread(new Runnable(){public void run(){String note;
+            try{ConsoleActions.finishReplay(MainActivity.this,again,false);note="";}catch(Exception e){note="未操作回放："+e.getMessage();}
+            final String result=note;
+            runOnUiThread(new Runnable(){public void run(){finishing=false;uiNote=result;updateStatus();}});
+        }}).start();
     }
     private void confirmRemove(){
         try{

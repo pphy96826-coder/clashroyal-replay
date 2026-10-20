@@ -19,7 +19,7 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn('replay.setVisibility((complete||saved!=null)?View.VISIBLE:View.GONE)',main)
         self.assertIn('exitReplay.setVisibility(complete?View.VISIBLE:View.GONE)',main)
         self.assertIn('removeReplay.setVisibility(saved!=null?',main)
-        self.assertIn('SavedReplay.load',main)
+        self.assertIn('SavedReplay.load',(JAVA/'ConsoleActions.java').read_text())
         self.assertNotIn('true);PlaybackService.openGame',main)
 
     def test_floating_console_is_touchable_only_inside_and_reuses_console_gates(self):
@@ -31,8 +31,8 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn('stopArmedUntil',floating)  # Stop needs a second tap.
         self.assertIn('PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE',floating)
         actions=(JAVA/'ConsoleActions.java').read_text()
-        self.assertIn('else if(PlaybackStatus.ownsTask(state))throw',actions)
-        self.assertIn('PlaybackService.begin(context,source,speed(),true,',actions)
+        self.assertIn('else if(PlaybackStatus.ownsTask(state)){if(user)throw new IOException("当前任务尚未完成，不覆盖战斗");return;}',actions)
+        self.assertIn('PlaybackService.begin(context,source,speed(),false,ReplayQueue.diagnostic(context.getFilesDir()),id)',actions)
         main=(JAVA/'MainActivity.java').read_text()
         self.assertIn('ConsoleActions.playNext(MainActivity.this)',main)
         self.assertIn('QueueRows.render(this,queueRows,',main)
@@ -47,6 +47,34 @@ class ConsoleTests(unittest.TestCase):
         importer=(JAVA/'QueueImportActivity.java').read_text()
         self.assertLess(importer.index('ReplayQueue.importFrom'),importer.index('runOnUiThread(new Runnable(){public void run(){finish();}})'))
 
+    def test_cancelled_preparation_restarts_only_its_own_process_on_explicit_switch(self):
+        actions=(JAVA/'ConsoleActions.java').read_text()
+        restart=actions[actions.index('private static void restartForRelease'):actions.index('private static boolean blockedByCancelledPreparation')]
+        self.assertLess(restart.index('NativePython.sameGameGeneration(state)'),restart.index('am force-stop'))
+        self.assertIn('!state.optBoolean("native_entry_started",false)',restart)
+        self.assertIn('NativePython.recordRelease(context,state)',restart)
+        prepare=actions[actions.index('private static void prepareHead'):actions.index('static void autoPrepare(')]
+        self.assertIn('if(!user){synchronized(ConsoleActions.class){tried.put(id,pid);outcomes.put(id,"上一份准备待释放");}return;}',prepare)
+        self.assertIn('blockedByCancelledPreparation(taskStatus(context))',prepare)
+        ended=actions[actions.index('static void armedEnded'):actions.index('static String playNext')]
+        self.assertIn('if(cancelled&&switchRequested)',ended)
+        # Speed changes never cancel a prepared row; 置顶 keeps it first.
+        self.assertIn('static void cycleSpeed(){speedIndex=(speedIndex+1)%SPEEDS.length;}',actions)
+        self.assertIn('!armed.isEmpty()&&!armed.equals(id)?1:0',actions)
+        playback=(ROOT/'device/device_playback.py').read_text()
+        self.assertIn("foreground_deadline=time.monotonic()+(PREPARE_AHEAD_SECONDS if request.get('prepare_ahead') is True else 600)",playback)
+        self.assertIn('.put("prepare_ahead",prepareAhead)',(JAVA/'NativePython.java').read_text())
+
+    def test_edge_window_uses_fixed_shell_commands_only(self):
+        edge=(JAVA/'EdgeWindow.java').read_text()
+        self.assertIn('private static final String START="am start --windowingMode 5 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "+EDGE;',edge)
+        self.assertIn('StandaloneDoctor.root(START,10)',edge)
+        self.assertIn('StandaloneDoctor.root("am stack list",10)',edge)
+        self.assertIn('"am task resize "+Integer.parseInt(task.group(1))+" "+left+" "+top+" "+right+" "+bottom',edge)
+        self.assertEqual(edge.count('StandaloneDoctor.root('),3)
+        for forbidden in ('getStringExtra','getData()','getText()','getUrl'):
+            self.assertNotIn(forbidden,edge)
+
     def test_queue_edits_are_bounded_to_queue_copies(self):
         queue=(JAVA/'ReplayQueue.java').read_text()
         remove=queue[queue.index('static synchronized void remove'):queue.index('static synchronized void moveToFront')]
@@ -56,9 +84,29 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn('if(!id.matches("[a-f0-9-]{36}"))throw',queue[queue.index('private static int find'):])
         actions=(JAVA/'ConsoleActions.java').read_text()
         for name in ('removeQueued','moveQueuedToFront','clearQueue'):
-            body=actions[actions.index(name):]
-            self.assertIn('if(starting)throw',body[:200])
-            self.assertIn('static synchronized',actions[actions.index(name)-40:actions.index(name)])
+            start=actions.index('static synchronized '+('int ' if name=='clearQueue' else 'void ')+name)
+            self.assertIn('if(starting)throw',actions[start:start+250])
+
+    def test_rows_prepared_ahead_never_publish_without_a_play_request(self):
+        service=(JAVA/'PlaybackService.java').read_text()
+        start=service.index('boolean wanted=');loop=service[start:service.index('if(phase.equals("complete")',start)]
+        # Only an explicit replay or the user's play request for THIS row opens the game.
+        self.assertIn('boolean wanted=!queueId.isEmpty()&&queueId.equals(ConsoleActions.playWhenReady());',loop)
+        self.assertIn('(replayRequested||wanted)&&PlaybackHandoff.readyForForeground(',loop)
+        # Queue edits cancel only before the scene and never after a foreground request.
+        self.assertIn('PRE_SCENE.contains(phase)',loop)
+        self.assertIn('!new File(status.getParentFile(),"foreground-request.json").exists()',loop)
+        self.assertIn('"cancel_before_scene",true',loop)
+        self.assertIn('"queued","preparing","calibrating","simulating","validating","ready_to_open"',service)
+        handoff=(JAVA/'PlaybackHandoff.java').read_text()
+        self.assertIn('if(PlaybackService.armedTask())return;',handoff)
+        actions=(JAVA/'ConsoleActions.java').read_text()
+        prepare=actions[actions.index('private static void prepareHead'):actions.index('static void autoPrepare(')]
+        # Automatic preparation: game open, once per row per game process, never closes a terminal client.
+        self.assertIn('pid=gamePid();if(pid<=0)return;',prepare)
+        self.assertIn('if(before!=null&&before==pid)return;',prepare)
+        self.assertIn('if(!user&&!reopened)return;',prepare)
+        self.assertIn('StandaloneDoctor.root("pidof "+StandaloneDoctor.GAME,5)',actions)
 
     def test_notification_returns_to_console_and_request_is_immutable(self):
         service=(JAVA/'PlaybackService.java').read_text()

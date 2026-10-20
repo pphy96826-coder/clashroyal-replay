@@ -30,6 +30,9 @@ from finalize_replay import finalize
 from proc_maps import MapsSnapshotError,diagnostics as maps_diagnostics
 
 
+PREPARE_AHEAD_SECONDS=7200
+
+
 def read(path):return json.loads(path.read_text())
 
 
@@ -572,7 +575,9 @@ def run(request_path,destination,prefix):
         context.update(source_sha256=request['source_sha256'],retained_events=len(aligned['events']),
                        source_execution_verified=diagnostic is None,native_roundtrip_verified=diagnostic is None,
                        global_delay_ticks=GLOBAL_DELAY_TICKS,native_terminal_tick=full['native_terminal_tick'])
-        foreground_deadline=time.monotonic()+600
+        # A row prepared ahead from the queue waits for the user's play tap longer;
+        # the same source-bound signal, lobby check and cancellation still apply.
+        foreground_deadline=time.monotonic()+(PREPARE_AHEAD_SECONDS if request.get('prepare_ahead') is True else 600)
         while True:
             cancellation();ReadOnlySession(identity).verify()
             status('ready_to_open','诊断前缀证据已核验；等待打开游戏，未通过整局校验。' if diagnostic is not None else '整局计算与全部指令核验已通过；等待悬浮进度卡就绪并打开游戏，此时尚未开播。')

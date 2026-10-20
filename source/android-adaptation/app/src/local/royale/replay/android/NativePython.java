@@ -139,6 +139,9 @@ public final class NativePython {
         return startPlayback(context,source,speed,"");
     }
     public static synchronized JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic)throws Exception {
+        return startPlayback(context,source,speed,diagnostic,false);
+    }
+    public static synchronized JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic,boolean prepareAhead)throws Exception {
         if(speed!=.25&&speed!=.5&&speed!=1&&speed!=2&&speed!=4)throw new IOException("无效倍速");
         File active=new File(context.getFilesDir(),"phone-active.json");
         if(active.isFile()&&!PlaybackStatus.launchFailureReleased(context)){
@@ -171,7 +174,7 @@ public final class NativePython {
         File manifest=new File(imported.getString("private_source_manifest"));
         File directory=new File(manifest.getParentFile(),"phone-playback");
         File request=new File(manifest.getParentFile(),"play-request.json");
-        JSONObject requested=new JSONObject().put("source_manifest",manifest.getAbsolutePath()).put("source_sha256",MainActivity.sha(source)).put("apk",apk).put("speed",speed);
+        JSONObject requested=new JSONObject().put("source_manifest",manifest.getAbsolutePath()).put("source_sha256",MainActivity.sha(source)).put("apk",apk).put("speed",speed).put("prepare_ahead",prepareAhead);
         if(!diagnostic.isEmpty()){
             File evidence=new File(diagnostic);File queue=new File(context.getFilesDir(),"replay-queue");
             if(!evidence.getCanonicalFile().getParentFile().equals(queue.getCanonicalFile())||!evidence.getName().matches("[a-f0-9-]{36}\\.diagnostic\\.json"))throw new IOException("诊断文件必须来自本机队列");

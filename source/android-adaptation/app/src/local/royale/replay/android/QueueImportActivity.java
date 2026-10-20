@@ -20,7 +20,8 @@ public final class QueueImportActivity extends Activity {
         FloatingConsole.note(this,"正在解析所选 HTML…");
         // Read grants belong to this task, so finish only after every file is copied.
         new Thread(new Runnable(){public void run(){String message;
-            try{message="已加入队列 "+ReplayQueue.importFrom(QueueImportActivity.this,data)+" 场";}catch(Exception e){message=e.getMessage();}
+            try{message="已加入队列 "+ReplayQueue.importFrom(QueueImportActivity.this,data)+" 场；会自动提前准备第一场。";}catch(Exception e){message=e.getMessage();}
+            ConsoleActions.autoPrepareLater(getApplicationContext());
             FloatingConsole.note(QueueImportActivity.this,message);
             runOnUiThread(new Runnable(){public void run(){finish();}});
         }}).start();

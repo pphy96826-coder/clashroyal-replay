@@ -7,15 +7,17 @@ API={
 'android.content.Context': '''public class Context {
  public java.io.File getFilesDir(){return null;} public android.content.ContentResolver getContentResolver(){return null;}
  public android.content.res.AssetManager getAssets(){return null;} public android.content.pm.PackageManager getPackageManager(){return null;}
- public void startActivity(android.content.Intent i){}
+ public void startActivity(android.content.Intent i){} public void startActivity(android.content.Intent i,android.os.Bundle options){}
  public android.content.ComponentName startForegroundService(android.content.Intent i){return null;}
  public Object getSystemService(String name){return null;}
  public android.content.ComponentName startService(android.content.Intent i){return null;} public boolean stopService(android.content.Intent i){return false;}
- public android.content.res.Resources getResources(){return null;}
+ public android.content.res.Resources getResources(){return null;} public Context getApplicationContext(){return this;}
 }''',
 'android.content.res.Resources': 'public class Resources {public android.util.DisplayMetrics getDisplayMetrics(){return null;}}',
 'android.util.DisplayMetrics': 'public class DisplayMetrics {public int widthPixels,heightPixels; public float density;}',
 'android.content.ComponentName': 'public class ComponentName {}',
+'android.app.ActivityOptions': 'public class ActivityOptions {public static ActivityOptions makeBasic(){return null;} public ActivityOptions setLaunchBounds(android.graphics.Rect r){return this;} public android.os.Bundle toBundle(){return null;}}',
+'android.graphics.Rect': 'public final class Rect {public Rect(int l,int t,int r,int b){}}',
 'android.os.IBinder': 'public interface IBinder {}',
 'android.R': 'public final class R {public static final class drawable {public static final int ic_media_play=17301540;}}',
 'android.app.Service': '''public class Service extends android.content.Context {
@@ -82,7 +84,7 @@ API={
 'android.view.ViewGroup': 'public class ViewGroup extends View {public ViewGroup(android.content.Context c){super(c);} public void addView(View v){} public void addView(View v,LayoutParams p){} public void removeAllViews(){} public static class LayoutParams {public int width,height; public LayoutParams(int w,int h){}} public static class MarginLayoutParams extends LayoutParams {public MarginLayoutParams(int w,int h){super(w,h);} public void setMargins(int l,int t,int r,int b){}} }',
 'android.widget.LinearLayout': 'public class LinearLayout extends android.view.ViewGroup {public LinearLayout(android.content.Context c){super(c);} public void setOrientation(int o){} public void setGravity(int g){} public static class LayoutParams extends android.view.ViewGroup.MarginLayoutParams {public LayoutParams(int w,int h){super(w,h);} public LayoutParams(int w,int h,float weight){super(w,h);}} }',
 'android.widget.ScrollView': 'public class ScrollView extends android.view.ViewGroup {public ScrollView(android.content.Context c){super(c);} }',
-'android.widget.TextView': 'public class TextView extends android.view.View {public TextView(android.content.Context c){super(c);} public void setText(CharSequence t){} public void setTextSize(float s){} public void setTextColor(int c){} public void setGravity(int g){} public void setMaxLines(int n){} public void setSingleLine(boolean v){} public void setMinHeight(int h){} public void setMinWidth(int w){} }',
+'android.widget.TextView': 'public class TextView extends android.view.View {public TextView(android.content.Context c){super(c);} public void setText(CharSequence t){} public void setTextSize(float s){} public void setTextColor(int c){} public void setGravity(int g){} public void setMaxLines(int n){} public void setSingleLine(boolean v){} public void setMinHeight(int h){} public void setMinWidth(int w){} public void setAllCaps(boolean v){} }',
 'android.widget.Button': 'public class Button extends TextView {public Button(android.content.Context c){super(c);} }',
 'android.text.Editable': 'public interface Editable extends CharSequence {}',
 'android.widget.EditText': 'public class EditText extends TextView {public EditText(android.content.Context c){super(c);}public android.text.Editable getText(){return null;}}',
@@ -100,7 +102,7 @@ API={
 'org.json.JSONException': 'public class JSONException extends Exception {public JSONException(String m){super(m);} }',
 'org.json.JSONArray': '''public class JSONArray {
  public JSONArray(){} public JSONArray(String s)throws JSONException{} public int length(){return 0;}
- public JSONObject getJSONObject(int i)throws JSONException{return null;} public JSONArray put(Object v){return this;}
+ public JSONObject getJSONObject(int i)throws JSONException{return null;} public JSONObject optJSONObject(int i){return null;} public JSONArray put(Object v){return this;}
  public String toString(){return "";}
 }''',
 'org.json.JSONObject': '''public class JSONObject {

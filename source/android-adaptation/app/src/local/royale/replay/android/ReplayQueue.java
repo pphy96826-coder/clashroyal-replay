@@ -17,7 +17,7 @@ final class ReplayQueue {
         File index=new File(directory(files),"index.json");
         return index.isFile()?new JSONArray(MainActivity.text(index,512*1024)):new JSONArray();
     }
-    static synchronized void add(File files,byte[] source,ReplaySource.Info parsed)throws Exception{
+    static synchronized String add(File files,byte[] source,ReplaySource.Info parsed)throws Exception{
         JSONArray rows=rows(files);long total=source.length;
         for(int i=0;i<rows.length();i++)total+=rows.getJSONObject(i).optLong("bytes",256L*1024*1024);
         if(rows.length()>=128||total>256L*1024*1024)throw new IOException("队列上限128场或256MB");
@@ -26,6 +26,7 @@ final class ReplayQueue {
         rows.put(new JSONObject().put("id",id).put("tag",parsed.tag).put("events",parsed.count())
             .put("sha256",MainActivity.sha(source)).put("bytes",source.length));
         MainActivity.write(new File(dir,"index.json"),rows.toString().getBytes(StandardCharsets.UTF_8));
+        return id;
     }
     static synchronized byte[] next(File files)throws Exception{
         JSONArray rows=rows(files);if(rows.length()==0)throw new IOException("队列为空");
@@ -82,10 +83,13 @@ final class ReplayQueue {
         MainActivity.write(new File(dir,"index.json"),rest.toString().getBytes(StandardCharsets.UTF_8));
         new File(dir,id+".html").delete();new File(dir,id+".diagnostic.json").delete();
     }
-    static synchronized void moveToFront(File files,String id)throws Exception{
-        JSONArray rows=rows(files);int index=find(rows,id);if(index==0)return;
-        JSONArray order=new JSONArray();order.put(rows.getJSONObject(index));
-        for(int i=0;i<rows.length();i++)if(i!=index)order.put(rows.getJSONObject(i));
+    static synchronized void moveToFront(File files,String id)throws Exception{moveTo(files,id,0);}
+    static synchronized void moveTo(File files,String id,int position)throws Exception{
+        JSONArray rows=rows(files);int index=find(rows,id);if(index==position)return;
+        JSONArray rest=new JSONArray(),order=new JSONArray();
+        for(int i=0;i<rows.length();i++)if(i!=index)rest.put(rows.getJSONObject(i));
+        position=Math.max(0,Math.min(position,rest.length()));
+        for(int i=0;i<=rest.length();i++){if(i==position)order.put(rows.getJSONObject(index));if(i<rest.length())order.put(rest.getJSONObject(i));}
         MainActivity.write(new File(directory(files),"index.json"),order.toString().getBytes(StandardCharsets.UTF_8));
     }
     static synchronized int clear(File files)throws Exception{
@@ -94,6 +98,12 @@ final class ReplayQueue {
         for(int i=0;i<rows.length();i++){String id=rows.getJSONObject(i).optString("id","");
             if(id.matches("[a-f0-9-]{36}")){new File(dir,id+".html").delete();new File(dir,id+".diagnostic.json").delete();}}
         return rows.length();
+    }
+    /** Played row leaves the list; like consume(), its HTML stays for diagnostics. */
+    static synchronized void consumeId(File files,String id)throws Exception{
+        JSONArray rows=rows(files);int index=find(rows,id);JSONArray rest=new JSONArray();
+        for(int i=0;i<rows.length();i++)if(i!=index)rest.put(rows.getJSONObject(i));
+        MainActivity.write(new File(directory(files),"index.json"),rest.toString().getBytes(StandardCharsets.UTF_8));
     }
     static synchronized void consume(File files,String hash)throws Exception{
         JSONArray rows=rows(files);if(rows.length()==0||!rows.getJSONObject(0).getString("sha256").equals(hash))throw new IOException("队列已改变");

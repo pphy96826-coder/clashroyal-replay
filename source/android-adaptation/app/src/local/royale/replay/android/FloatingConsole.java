@@ -30,18 +30,26 @@ public final class FloatingConsole extends Service {
     private static final int BUBBLE=52,PANEL=330;
     private static volatile FloatingConsole active;
     private static volatile String note="";
+    // A browser replay waiting for the user's choice in the panel; links never start playback themselves.
+    private static volatile BrowserImport.Snapshot offer;
     private final Handler ui=new Handler();
     private WindowManager window;
     private WindowManager.LayoutParams params;
     private LinearLayout root,panel,queueList;
     private ScrollView queueScroll;
     private TextView bubble,status,detail,noteView,queueTitle;
-    private Button next,speed,stop,clear;
+    private Button next,speed,stop,clear,offerPlay,replayMatch,exitMatch;
+    private LinearLayout offerBox,finishRow;
+    private TextView offerText;
     private boolean expanded,closed,working;
     private int bubbleX,bubbleY,bubbleColor;
     private long stopArmedUntil,clearArmedUntil;
-    private String queueShown;
-    private final Runnable refresh=new Runnable(){public void run(){if(!closed){update();ui.postDelayed(this,1000);}}};
+    private String queueShown,lastPhase;
+    private int ticks;
+    private final Runnable refresh=new Runnable(){public void run(){if(!closed){update();
+        // Every ~15 s: if the first queue row can be prepared ahead (game open, nothing running), start it.
+        if(++ticks%15==0&&!PlaybackService.isBusy())ConsoleActions.autoPrepareLater(getApplicationContext());
+        ui.postDelayed(this,1000);}}};
 
     static boolean enabled(Context context){
         try{return new JSONObject(MainActivity.text(new File(context.getFilesDir(),"floating-console.json"),4096)).optBoolean("enabled",true);}catch(Exception e){return true;}
@@ -58,6 +66,17 @@ public final class FloatingConsole extends Service {
         if(service!=null)service.ui.post(new Runnable(){public void run(){if(!service.expanded)service.setExpanded(true);else{service.queueShown=null;service.update();}}});
     }
 
+    /** Any thread. Shows the received replay in the panel; nothing plays until the user taps there. */
+    static void offer(Context context,BrowserImport.Snapshot snapshot){
+        offer=snapshot;note(context,"已收到 Edge 发送的回放，请在下方选择。");
+    }
+    /** Any thread. A verified terminal: offer replay / exit in the panel instead of opening the console. */
+    static boolean finished(Context context){
+        if(active==null)return false;
+        boolean more=false;try{more=ReplayQueue.rows(context.getFilesDir()).length()>0;}catch(Exception ignored){}
+        note(context,more?"本场已播完；正在自动准备队列下一场，就绪后点「播放下一个」即开播。":"本场已播完。可在下方「重放本场」或「退出回放」，不用回到控制台。");return true;
+    }
+
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         active=this;
         NotificationManager notifications=(NotificationManager)getSystemService("notification");
@@ -67,7 +86,7 @@ public final class FloatingConsole extends Service {
             .setContentTitle("回放悬浮控制台").setContentText("点此展开或收起；拖动圆形按钮可移动位置。").setContentIntent(toggle).setOngoing(true).build());
         if(!OverlayAccess.allowed(this)){stopSelf();return START_NOT_STICKY;}
         try{
-            if(root==null)attach();
+            if(root==null){attach();if(offer!=null||!note.isEmpty())setExpanded(true);}
             if(intent!=null&&TOGGLE.equals(intent.getAction()))setExpanded(!expanded);
         }catch(RuntimeException e){root=null;stopSelf();}
         return START_NOT_STICKY;
@@ -97,14 +116,30 @@ public final class FloatingConsole extends Service {
         status=text(panel,"",16,0xff80e8d5);
         detail=text(panel,"",12,0xffb4c4da);detail.setMaxLines(4);
         noteView=text(panel,"",12,0xffffd27a);noteView.setMaxLines(3);
+        offerBox=new LinearLayout(this);offerBox.setOrientation(1);offerBox.setPadding(dp(10),dp(8),dp(10),dp(8));offerBox.setBackground(QueueRows.shape(this,0xff1d3350,10));
+        offerText=new TextView(this);offerText.setTextSize(13);offerText.setTextColor(0xfff0f5ff);offerBox.addView(offerText);
+        LinearLayout offerRow=new LinearLayout(this);offerRow.setOrientation(0);offerRow.setPadding(0,dp(6),0,0);offerBox.addView(offerRow,new LinearLayout.LayoutParams(-1,-2));
+        offerPlay=chip(offerRow,"立即播放",0xff177e6c,new View.OnClickListener(){public void onClick(View v){
+            final BrowserImport.Snapshot chosen=offer;if(chosen==null)return;offer=null;
+            work(new Job(){public String run()throws Exception{return ConsoleActions.playOffer(FloatingConsole.this,chosen.html);}});}});
+        chip(offerRow,"加入队列",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
+            final BrowserImport.Snapshot chosen=offer;if(chosen==null)return;offer=null;
+            work(new Job(){public String run()throws Exception{ReplayQueue.add(getFilesDir(),chosen.html,MainActivity.checkedSource(chosen.html));ConsoleActions.autoPrepareLater(getApplicationContext());return "已加入待播队列："+chosen.source.tag+"；会自动提前准备。";}});}});
+        chip(offerRow,"忽略",0xff3a4558,new View.OnClickListener(){public void onClick(View v){offer=null;note="已忽略 Edge 发送的回放；没有保存或播放。";update();}});
+        LinearLayout.LayoutParams offerParams=new LinearLayout.LayoutParams(-1,-2);offerParams.setMargins(0,dp(4),0,dp(4));panel.addView(offerBox,offerParams);
         LinearLayout playback=row();
         next=chip(playback,"播放下一个",0xff177e6c,new View.OnClickListener(){public void onClick(View v){
-            work(new Job(){public String run()throws Exception{ConsoleActions.playNext(FloatingConsole.this);return "已请求队列下一场；先完成场景校验，不重复提交原生任务。";}});}});
+            work(new Job(){public String run()throws Exception{return ConsoleActions.playNext(FloatingConsole.this);}});}});
         speed=chip(playback,ConsoleActions.speedLabel(),0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){ConsoleActions.cycleSpeed();update();}});
         LinearLayout stopRow=row();
         stop=chip(stopRow,"停止当前回放",0xff8a3340,new View.OnClickListener(){public void onClick(View v){
             if(System.currentTimeMillis()>stopArmedUntil){stopArmedUntil=System.currentTimeMillis()+4000;update();return;}
             stopArmedUntil=0;work(new Job(){public String run()throws Exception{ConsoleActions.requestStop(FloatingConsole.this);return "已请求停止 · 等待安全边界确认";}});}});
+        finishRow=row();
+        replayMatch=chip(finishRow,"重放本场",0xff177e6c,new View.OnClickListener(){public void onClick(View v){
+            work(new Job(){public String run()throws Exception{return ConsoleActions.finishReplay(FloatingConsole.this,true,true);}});}});
+        exitMatch=chip(finishRow,"退出回放",0xff3a4558,new View.OnClickListener(){public void onClick(View v){
+            work(new Job(){public String run()throws Exception{return ConsoleActions.finishReplay(FloatingConsole.this,false,true);}});}});
         queueTitle=text(panel,"",14,0xfff0f5ff);
         queueScroll=new ScrollView(this);queueList=new LinearLayout(this);queueList.setOrientation(1);queueScroll.addView(queueList);
         panel.addView(queueScroll,new LinearLayout.LayoutParams(-1,-2));
@@ -114,6 +149,11 @@ public final class FloatingConsole extends Service {
         clear=chip(edit,"清空队列",0xff8a3340,new View.OnClickListener(){public void onClick(View v){
             if(System.currentTimeMillis()>clearArmedUntil){clearArmedUntil=System.currentTimeMillis()+4000;update();return;}
             clearArmedUntil=0;try{note="已清空队列 "+ConsoleActions.clearQueue(FloatingConsole.this)+" 场；不影响正在播放的回放。";}catch(Exception e){note="未清空："+e.getMessage();}queueShown=null;update();}});
+        if(EdgeWindow.installed(this)){
+            LinearLayout browser=row();
+            chip(browser,"小窗打开 Edge（RoyaleAPI）",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
+                setExpanded(false);work(new Job(){public String run()throws Exception{return EdgeWindow.open(FloatingConsole.this);}});}});
+        }
         LinearLayout exits=row();
         chip(exits,"完整控制台",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
             setExpanded(false);startActivity(new Intent(FloatingConsole.this,MainActivity.class).addFlags(0x34000000));}});
@@ -133,7 +173,7 @@ public final class FloatingConsole extends Service {
     private int panelWidth(){return Math.min(dp(PANEL),screenWidth()-dp(12));}
     private void place(){
         boolean right=onRight();root.setGravity(right?Gravity.RIGHT:Gravity.LEFT);
-        if(expanded){int width=panelWidth();params.x=clamp(right?bubbleX+dp(BUBBLE)-width:bubbleX,0,screenWidth()-width);params.y=clamp(bubbleY,0,screenHeight()-dp(600));}
+        if(expanded){int width=panelWidth();params.x=clamp(right?bubbleX+dp(BUBBLE)-width:bubbleX,0,screenWidth()-width);params.y=clamp(bubbleY,0,screenHeight()-dp(700));}
         else{params.x=bubbleX;params.y=bubbleY;}
         window.updateViewLayout(root,params);
     }
@@ -168,7 +208,7 @@ public final class FloatingConsole extends Service {
         new Thread(new Runnable(){public void run(){String message;
             try{message=job.run();}catch(Exception e){message="未完成："+e.getMessage();}
             final String result=message;
-            ui.post(new Runnable(){public void run(){working=false;note=result;queueShown=null;update();}});
+            ui.post(new Runnable(){public void run(){working=false;if(result!=null)note=result;queueShown=null;update();}});
         }}).start();
     }
     private void update(){
@@ -178,22 +218,40 @@ public final class FloatingConsole extends Service {
             boolean owns=PlaybackStatus.ownsTask(state);
             int color=owns?0xf0d9822b:0xf0177e6c;
             if(color!=bubbleColor){bubbleColor=color;bubble.setBackground(QueueRows.shape(this,color,BUBBLE/2));}
+            // Get out of the battle's way once native playback is confirmed to be stepping.
+            String phase=state.optString("state","");
+            if(!phase.equals(lastPhase)){boolean started=lastPhase!=null&&phase.equals("playing");lastPhase=phase;if(started){note="";if(expanded){setExpanded(false);return;}}}
             if(!expanded)return;
             long now=System.currentTimeMillis();
-            status.setText(PlaybackStatus.title(state));detail.setText(PlaybackStatus.detail(state,now/1000));
+            String[] early=ConsoleActions.earlyStatus(state);
+            if(early!=null){status.setText(early[0]);detail.setText(early[1]);}
+            else{status.setText(PlaybackStatus.title(state));detail.setText(PlaybackStatus.detail(state,now/1000));}
             noteView.setText(note);noteView.setVisibility(note.isEmpty()?View.GONE:View.VISIBLE);
             JSONArray rows=ReplayQueue.rows(getFilesDir());
             boolean editable=!working&&!ConsoleActions.starting();
             queueTitle.setText("待播队列："+rows.length()+" 场"+(rows.length()>0?" · 下一场在最上面":""));
-            String shown=rows.toString()+editable;
+            java.util.Map<String,String> statuses=ConsoleActions.rowStatus(this,rows);
+            String shown=rows.toString()+editable+statuses;
             if(!shown.equals(queueShown)){
                 queueShown=shown;
-                QueueRows.render(this,queueList,rows,editable,new QueueRows.Listener(){public void changed(String message){note=message;queueShown=null;update();}});
+                QueueRows.render(this,queueList,rows,statuses,true,editable,new QueueRows.Listener(){public void changed(String message){note=message;queueShown=null;update();}});
                 queueScroll.setLayoutParams(new LinearLayout.LayoutParams(-1,rows.length()>5?dp(200):-2));
             }
             QueueRows.enable(next,rows.length()>0&&!working&&ConsoleActions.canPlayNext(state));
-            speed.setText(ConsoleActions.speedLabel());QueueRows.enable(speed,!working&&!PlaybackService.isBusy());
-            stop.setVisibility(PlaybackStatus.canStop(state,now/1000)?View.VISIBLE:View.GONE);
+            BrowserImport.Snapshot pending=offer;
+            offerBox.setVisibility(pending==null?View.GONE:View.VISIBLE);
+            if(pending!=null){
+                offerText.setText("Edge 发来回放 "+pending.source.tag+" · "+pending.source.count()+" 条指令\n内容校验通过，不代表网站身份认证；点按钮后才会播放或保存。");
+                offerPlay.setText(!ConsoleActions.canPlayNext(state)?"加入待播（当前未结束）":PlaybackService.armedIdle()?"立即播放·需重启游戏":"立即播放");QueueRows.enable(offerPlay,!working);
+            }
+            boolean complete=state.optString("state","").equals("complete");
+            // While the next row is prepared ahead, the finished match can still be replayed from its saved copy.
+            boolean replayLast=PlaybackService.armedIdle()&&SavedReplay.metadata(getFilesDir())!=null;
+            finishRow.setVisibility(complete||replayLast?View.VISIBLE:View.GONE);
+            replayMatch.setText(complete?"重放本场":"重放上一场·需重启游戏");exitMatch.setVisibility(complete?View.VISIBLE:View.GONE);
+            QueueRows.enable(replayMatch,!working&&(replayLast||!PlaybackService.isBusy()));QueueRows.enable(exitMatch,!working&&!PlaybackService.isBusy());
+            speed.setText(ConsoleActions.speedLabel());QueueRows.enable(speed,!working&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));
+            stop.setVisibility(PlaybackStatus.canStop(state,now/1000)&&!PlaybackService.armedIdle()?View.VISIBLE:View.GONE);
             stop.setText(now<stopArmedUntil?"再点一次确认停止（仅重启游戏客户端）":"停止当前回放");
             clear.setText(now<clearArmedUntil?"再点一次确认清空":"清空队列");QueueRows.enable(clear,rows.length()>0&&editable);
         }catch(Exception e){if(expanded)status.setText("状态暂不可读；不会自动重试回放。");}

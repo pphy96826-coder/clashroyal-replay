@@ -37,10 +37,22 @@ class BrowserBridgeTests(unittest.TestCase):
     def test_export_is_review_only_and_service_stays_private(self):
         ns = '{http://schemas.android.com/apk/res/android}'
         app = ET.parse(ROOT/'app/AndroidManifest.xml').getroot().find('application')
-        activity = next(a for a in app.findall('activity') if a.get(ns+'name') == '.BrowserImportActivity')
+        review = next(a for a in app.findall('activity') if a.get(ns+'name') == '.BrowserImportActivity')
+        self.assertEqual(review.get(ns+'exported'), 'false')
+        activity = next(a for a in app.findall('activity') if a.get(ns+'name') == '.BrowserBridgeActivity')
         self.assertEqual(activity.get(ns+'exported'), 'true')
         self.assertEqual(activity.find('intent-filter/data').attrib,
                          {ns+'scheme': 'royalereplay', ns+'host': 'import', ns+'path': '/v1'})
+        exported = [a.get(ns+'name') for a in app.findall('activity') if a.get(ns+'exported') == 'true']
+        self.assertEqual(sorted(exported), ['.BrowserBridgeActivity', '.MainActivity'])
+        bridge = (JAVA/'BrowserBridgeActivity.java').read_text()
+        self.assertIn('FloatingConsole.offer(BrowserBridgeActivity.this,BrowserImport.decode(link))', bridge)
+        for forbidden in ('getStringExtra(', 'getDoubleExtra(', 'getBooleanExtra(', 'PlaybackService', 'NativePython.', 'ConsoleActions', 'ReplayQueue', 'Runtime.getRuntime', 'su'):
+            self.assertNotIn(forbidden, bridge.replace('super.', '').replace('Bundle state', ''))
+        floating = (JAVA/'FloatingConsole.java').read_text()
+        offer = floating[floating.index('static void offer('):floating.index('static boolean finished(')]
+        self.assertNotIn('ConsoleActions', offer)  # Receiving never plays; only the panel buttons do.
+        self.assertIn('ConsoleActions.playOffer(FloatingConsole.this,chosen.html)', floating)
         service = next(s for s in app.findall('service') if s.get(ns+'name') == '.PlaybackService')
         self.assertEqual(service.get(ns+'exported'), 'false')
         receiver = (JAVA/'BrowserImportActivity.java').read_text()

@@ -1,6 +1,14 @@
 # Clash Royale HTML 回放：Android / macOS / Windows
 
-## 最新：2026-10-20 Android hotfix9 · 游戏内悬浮控制台
+## 最新：2026-10-20 Android hotfix10 · 全程在游戏内操作
+
+[下载 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261020-hotfix10) · [更新说明与验证范围](docs/更新说明-20261020-hotfix10.md)
+
+- Edge 以系统小窗浮在游戏上，保留你的 Google/RoyaleAPI 登录；「在安卓控制台播放」直接把回放送进悬浮窗，可立即播放 / 加入队列 / 忽略，不再跳到控制台。
+- 队列中的回放一加入就自动提前准备，每行右侧显示状态；已就绪的回放点「播放下一个」约 14 秒开播（原先约 50 秒）。播完在悬浮窗直接重放或退出。
+- 已就绪的回放只能靠重启那一个游戏客户端来取消：删除它要连点两次确认，换播另一场会先重启再开播。macOS / Windows 不变，继续用下方 hotfix3。
+
+## 2026-10-20 Android hotfix9 · 游戏内悬浮控制台
 
 [下载 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261020-hotfix9) · [更新说明与验证范围](docs/更新说明-20261020-hotfix9.md)
 

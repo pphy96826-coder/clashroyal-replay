@@ -73,6 +73,7 @@ final class PlaybackHandoff {
     }
     void check(){
         if(!visible||checking||!PlaybackService.isBusy())return;
+        if(PlaybackService.armedTask())return; // Rows prepared ahead open only on the user's play request (service-driven).
         try{
             final JSONObject requested=request();final File record=marker(requested);
             final JSONObject state=new JSONObject(MainActivity.text(new File(PlaybackStatus.activeDirectory(activity),"status.json"),32768));

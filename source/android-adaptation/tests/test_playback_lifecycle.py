@@ -149,9 +149,14 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn("action='return-lobby'",terminal)
         self.assertIn('seamless=False',terminal)
         main=(ROOT/'app/src/local/royale/replay/android/MainActivity.java').read_text()
-        self.assertIn('input.html',main)
-        self.assertIn('sha(source).equals(state.optString("source_sha256"',main)
-        self.assertIn('NativePython.finishCompleted',main)
+        self.assertIn('ConsoleActions.finishReplay(MainActivity.this,again,false)',main)
+        actions=(ROOT/'app/src/local/royale/replay/android/ConsoleActions.java').read_text()
+        finish=actions[actions.index('static String finishReplay'):actions.index('static void requestStop')]
+        self.assertIn('input.html',finish)
+        self.assertIn('sha(source).equals(state.optString("source_sha256"',finish)
+        self.assertIn('NativePython.finishCompleted',finish)
+        # With the floating console up, the terminal offers Replay/Exit in-game; otherwise the console opens once.
+        self.assertIn('if(completed&&FloatingConsole.finished(PlaybackService.this))returnToConsole=false;',service)
 
     def test_diagnostic_bundle_is_local_hash_and_source_bound(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
