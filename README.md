@@ -1,6 +1,14 @@
 # Clash Royale HTML 回放：Android / macOS / Windows
 
-## 最新：2026-10-20 Android hotfix10 · 全程在游戏内操作
+## 最新：2026-10-21 Android hotfix11 · 终局与网页比对、随机种子匹配
+
+[详细更新说明](docs/更新说明-20261021-hotfix11.md) · [非 Root 安卓与 iOS 的播放方法](docs/非Root安卓与iOS播放方案.md)
+
+- 每局准备完都会与 RoyaleAPI 页面的终局六塔比对。之前只在技能目标有歧义时比对，其余对局显示“整局校验通过”其实没有比对。
+- 页面不含随机种子，骷髅帝王召唤等随机技能会让结局与页面不同（例：02CY92YUQPY9 结局相反）。不一致时自动尝试最多 60 个随机种子，选出最接近页面的结果播放，并标明“完全一致 / 终局近似 / 仅胜负相同 / 不符”。实测该局改为与页面相同的 1:0 结局。
+- 源码已推送；本版 APK 暂未发布 Release，目前可下载的最新安卓 APK 是下方 hotfix10。macOS / Windows 不变。
+
+## 2026-10-20 Android hotfix10 · 全程在游戏内操作
 
 [下载 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261020-hotfix10) · [更新说明与验证范围](docs/更新说明-20261020-hotfix10.md)
 

@@ -30,7 +30,7 @@ final class QueueRows {
             String label=statuses.containsKey(id)?statuses.get(id):"";
             if(!label.isEmpty()){
                 TextView state=new TextView(context);state.setTextSize(11);state.setSingleLine(true);state.setText(label);
-                state.setTextColor(label.startsWith("✓")||label.equals("正在开播")?0xff80e8d5:label.startsWith("准备中")?0xffffd27a:0xff9aaec8);
+                state.setTextColor(label.startsWith("⚠")?0xffff8a80:label.startsWith("✓")||label.equals("正在开播")?0xff80e8d5:label.startsWith("准备中")?0xffffd27a:0xff9aaec8);
                 line.addView(state,gap(context));
             }
             if(i>0){Button top=chip(context,"置顶",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){

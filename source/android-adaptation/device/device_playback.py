@@ -4,6 +4,7 @@ No ADB, host service, sockets, APK patch or shared client patch. Each native
 publication has an immutable attempt; a pending/failed task is never repeated.
 """
 import contextlib
+import copy
 import fcntl
 import hashlib
 import importlib.util
@@ -31,6 +32,57 @@ from proc_maps import MapsSnapshotError,diagnostics as maps_diagnostics
 
 
 PREPARE_AHEAD_SECONDS=7200
+# The page carries no battle random seed. Some abilities (e.g. Skeleton King's
+# summon) consume the engine RNG, so a fixed seed can end differently from the
+# page. When the final tower HP differs, a bounded list of other seeds is tried;
+# a seed is accepted only if the whole battle runs and every tower matches.
+SEED_ATTEMPTS=60
+PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different')
+
+
+def page_comparison(source, preparation, report):
+    """Compare a fully executed run with the page's final towers.
+
+    Returns (tier, hp_difference): exact; same destroyed towers (so same crowns
+    and winner); same winner only; or different. A destroyed tower counts as 0.
+    """
+    from tower_profiles import bindings
+    state=report.get('battle_state') or {}
+    alive=state.get('towers',[])
+    destroyed=[t for t in state.get('destroyed_towers',[]) if t.get('native_destructor_observed') is True and t.get('hp')==0]
+    crowns={};page_crowns={};difference=0;same_towers=True;exact=True
+    for deck in source['decks']:
+        owner=deck['proposed_native_owner'];oracle=deck.get('oracle_final_hp') or {}
+        for key,entry in zip(('king','princess0','princess1'),bindings(preparation)[owner]['spawn_entries']):
+            if type(oracle.get(key)) is not int:return 'different',None
+            spot=(owner,entry['data_id']&0xffffffff,entry['grid_x']*500)
+            found=[t for t in alive if (t['owner'],t['data_id'],t['x'])==spot]
+            gone=[t for t in destroyed if (t['owner'],t['data_id'],t['x'])==spot]
+            king_fell=any(t['owner']==owner and t['data_id']==35000000 and t['hp']==0 for t in alive+destroyed)
+            if len(found)==1:hp=found[0]['hp']
+            elif gone or (key!='king' and king_fell):hp=0  # A fallen king takes its princess towers with it.
+            else:return 'different',None  # Absent without destruction evidence: unknown, never guessed.
+            difference+=abs(hp-oracle[key]);exact=exact and hp==oracle[key]
+            same_towers=same_towers and (hp==0)==(oracle[key]==0)
+            loser=1-owner
+            crowns[loser]=crowns.get(loser,0)+(3 if key=='king' and hp==0 else (1 if hp==0 and key!='king' else 0))
+            page_crowns[loser]=page_crowns.get(loser,0)+(3 if key=='king' and oracle[key]==0 else (1 if oracle[key]==0 and key!='king' else 0))
+    def winner(c):a,b=min(c.get(0,0),3),min(c.get(1,0),3);return 0 if a>b else 1 if b>a else None
+    if exact:return 'exact',0
+    if same_towers:return 'same_towers',difference
+    if winner(crowns)==winner(page_crowns):return 'same_winner',difference
+    return 'different',difference
+
+
+def seed_plan(source_sha256, original, count=SEED_ATTEMPTS):
+    """Deterministic, reproducible int32 seeds derived from the source hash."""
+    seeds=[]
+    for n in range(count*4):
+        value=int.from_bytes(hashlib.sha256((source_sha256+':seed:'+str(n)).encode()).digest()[:4],'big')
+        value=value-2**32 if value>=2**31 else value
+        if value!=original and value not in seeds:seeds.append(value)
+        if len(seeds)==count:break
+    return seeds
 
 
 def read(path):return json.loads(path.read_text())
@@ -518,6 +570,7 @@ def run(request_path,destination,prefix):
             else:checked_receipt(result,execute=execute,scene=scene)
             return result
         status('calibrating','手机本机：核验原生初始发牌和安全释放。')
+        delayed=copy.deepcopy(shifted)
         seen=[]
         for calibration in range(12):
             seen.append(deck_fingerprint(shifted))
@@ -530,11 +583,12 @@ def run(request_path,destination,prefix):
         status('simulating','手机原生引擎：完整执行全部下牌和技能。')
         from ability_search import search,terminal_hp_matches
         selected_candidate={}
+        attempt_prefix=''
         def execute_candidate(candidate,number):
             nonlocal prep
-            prep=preparation/('ability-candidate-'+str(number)+'.json');write_new(prep,candidate)
-            name='bootstrap-v3' if number==0 else 'ability-candidate-'+str(number)
-            status('simulating','完整预演技能目标候选 '+str(number+1)+'；只接受整局指令成功且终局塔血匹配的歧义候选。')
+            prep=preparation/(attempt_prefix+'ability-candidate-'+str(number)+'.json');write_new(prep,candidate)
+            name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else ('bootstrap-v3' if number==0 else 'ability-candidate-'+str(number))
+            if not attempt_prefix:status('simulating','完整预演技能目标候选 '+str(number+1)+'；只接受整局指令成功且终局塔血匹配的歧义候选。')
             candidate_receipt=probe(name,execute=True,candidate=True)
             selected_candidate.update(receipt=candidate_receipt,preparation=prep)
             return read(destination/(name+'-source-execution.json')),dict(attempt=name,preparation=str(prep))
@@ -559,8 +613,53 @@ def run(request_path,destination,prefix):
                 if hasattr(error,'search_report'):write_new(destination/'ability-search.json',error.search_report)
                 raise
             write_new(destination/'ability-search.json',search_result)
+            # Always compare the simulated end with the page (the search only does so for ambiguous abilities).
+            tier,difference=page_comparison(read(source),aligned,execution)
+            original_seed=aligned['initialization_only']['rndSeed']
+            seed_report=dict(original_seed=original_seed,original_tier=tier,original_difference=difference,attempts=[],selected_seed=original_seed)
+            def rank(tier,difference):return (PAGE_MATCH_TIERS.index(tier),difference if difference is not None else 1<<30)
+            best=(rank(tier,difference),original_seed,tier,difference,(aligned,execution,search_result,dict(selected_candidate)))
+            if tier!='exact':
+                for number,seed in enumerate(seed_plan(request['source_sha256'],original_seed)):
+                    if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed search')
+                    status('simulating','终局塔血与网页不符（随机技能依赖未知种子，如骷髅帝王召唤）；尝试其他随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'，当前最接近：'+best[2]+'。')
+                    row=dict(seed=seed)
+                    try:
+                        trial=copy.deepcopy(delayed);trial['initialization_only']['rndSeed']=seed
+                        trial_seen=[]
+                        for calibration in range(12):
+                            trial_seen.append(deck_fingerprint(trial))
+                            prep=preparation/('seed-'+str(number)+'-deal-'+str(calibration)+'.json');write_new(prep,trial)
+                            deal=probe('seed-'+str(number)+'-deal-'+str(calibration))
+                            trial=calibrate(trial,deal,trial_seen)
+                            if trial['native_deal_ready']:break
+                        else:raise RuntimeError('seed deal calibration did not converge')
+                        attempt_prefix='seed-'+str(number)+'-'
+                        trial,trial_execution,trial_search=search(trial,execute_candidate,
+                            lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
+                            cancelled=lambda:(destination/'stop-request.json').exists())
+                        trial_tier,trial_difference=page_comparison(read(source),trial,trial_execution)
+                        row.update(executed=True,tier=trial_tier,difference=trial_difference,
+                                   towers=(trial_execution.get('battle_state') or {}).get('towers'))
+                        if rank(trial_tier,trial_difference)<best[0]:
+                            best=(rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
+                                  (trial,trial_execution,trial_search,dict(selected_candidate)))
+                    except Cancelled:raise
+                    except Exception as error:row.update(executed=False,error=str(error)[:300])
+                    finally:attempt_prefix=''
+                    seed_report['attempts'].append(row)
+                    if best[2]=='exact':break
+            _,selected_seed,tier,difference,(aligned,execution,search_result,chosen)=best
+            selected_candidate.clear();selected_candidate.update(chosen)
+            seed_report.update(selected_seed=selected_seed,selected_tier=tier,selected_difference=difference)
+            hp_matched=tier=='exact'
+            write_new(destination/'seed-search.json',seed_report)
             receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']
             context['ability_target_inferred']=search_result['inferred']
+            # final_hp_matched: the whole simulated battle ends exactly at the page's tower HP.
+            # random_seed_inferred: matched only with a substituted seed; not proof of the original process.
+            context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=difference,random_seed=seed_report['selected_seed'],
+                           random_seed_inferred=seed_report['selected_seed']!=original_seed,seed_attempts=len(seed_report['attempts']))
             full=finalize(aligned,execution,receipt)
             native=preparation/'complete-native.json';write_new(native,full)
             status('validating','手机本机：核对完整录像的原生 JSON 往返。')
@@ -580,7 +679,13 @@ def run(request_path,destination,prefix):
         foreground_deadline=time.monotonic()+(PREPARE_AHEAD_SECONDS if request.get('prepare_ahead') is True else 600)
         while True:
             cancellation();ReadOnlySession(identity).verify()
-            status('ready_to_open','诊断前缀证据已核验；等待打开游戏，未通过整局校验。' if diagnostic is not None else '整局计算与全部指令核验已通过；等待悬浮进度卡就绪并打开游戏，此时尚未开播。')
+            if diagnostic is not None:ready_message='诊断前缀证据已核验；等待打开游戏，未通过整局校验。'
+            elif context.get('page_match')=='same_towers':ready_message='胜负和被摧毁的塔与网页一致，塔血合计相差 '+str(context.get('page_hp_difference'))+'（随机技能的原种子未知，已在 '+str(context.get('seed_attempts',0))+' 个种子中选最接近的）；等待打开游戏，此时尚未开播。'
+            elif context.get('page_match')=='same_winner':ready_message='胜负与网页一致，但被摧毁的塔不同（已试 '+str(context.get('seed_attempts',0))+' 个随机种子，选最接近的）；仍可播放，过程与原局不同。'
+            elif not context.get('final_hp_matched'):ready_message='全部指令已执行，但终局与网页不符（已另试 '+str(context.get('seed_attempts',0))+' 个随机种子）；仍可播放，过程可能与原局不同。'
+            elif context.get('random_seed_inferred'):ready_message='整局核验通过：换用随机种子后终局塔血与网页完全一致（原种子未知，过程为推断）；等待打开游戏，此时尚未开播。'
+            else:ready_message='整局计算、全部指令和终局塔血均与网页一致；等待悬浮进度卡就绪并打开游戏，此时尚未开播。'
+            status('ready_to_open',ready_message)
             signal=destination/'foreground-request.json'
             if signal.is_file():
                 token=read(signal)

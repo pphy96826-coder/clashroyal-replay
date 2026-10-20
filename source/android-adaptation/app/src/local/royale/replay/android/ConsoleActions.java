@@ -232,21 +232,38 @@ final class ConsoleActions {
         if(!PlaybackService.armedIdle())return null;
         String phase=state.optString("state",""),armed=PlaybackService.armedQueueId();
         boolean wanted=armed.equals(playWhenReady);
-        if(phase.equals("ready_to_open"))return new String[]{"下一场已就绪","已提前完成整局准备；点「播放下一个」约 15 秒开播。游戏客户端不重启时约 2 小时内有效，过期会自动重新准备。"};
+        if(phase.equals("ready_to_open")){
+            String match=pageMatch(state),tried="已试 "+state.optLong("seed_attempts",0)+" 个随机种子";
+            String check=match.equals("same_towers")?"胜负和被摧毁的塔与网页一致，塔血合计相差 "+state.optLong("page_hp_difference",0)+"（"+tried+"，选最接近的）。"
+                :match.equals("same_winner")?"⚠ 胜负与网页一致，但被摧毁的塔不同（"+tried+"）。"
+                :match.equals("different")?"⚠ 终局与网页不符（"+tried+"），过程与原局不同。"
+                :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";
+            return new String[]{"下一场已就绪",check+"点「播放下一个」约 15 秒开播；游戏客户端不重启时约 2 小时内有效。"};
+        }
+        if(state.optString("message","").contains("随机种子"))return new String[]{"正在匹配随机种子",state.optString("message","")};
         return new String[]{wanted?"准备中 · 完成后自动开播":"正在提前准备下一场",
             (phase.equals("calibrating")?"校准原生发牌":phase.equals("simulating")?"预演整局":phase.equals("validating")?"核对全部指令":"读取资源并等待大厅")+(wanted?"；不用再点。":"；只做准备，不会自动开播。")};
+    }
+    /** exact / same_towers / same_winner / different; older records only know exact-or-not. */
+    static String pageMatch(JSONObject state){
+        return state.optString("page_match",state.optBoolean("final_hp_matched",true)?"exact":"different");
+    }
+    static String readyLabel(JSONObject state){
+        String match=pageMatch(state);
+        return match.equals("exact")?"✓ 已就绪":match.equals("same_towers")?"✓ 已就绪·终局近似":match.equals("same_winner")?"⚠ 已就绪·仅胜负同网页":"⚠ 已就绪·与网页不符";
     }
     /** Short status for each queue row, shown on the right of the row. */
     static Map<String,String> rowStatus(Context context,JSONArray rows){
         Map<String,String> result=new HashMap<String,String>();
-        String armed=PlaybackService.armedQueueId(),phase="";
-        if(!armed.isEmpty())try{phase=PlaybackStatus.read(context).optString("state","");}catch(Exception ignored){}
+        String armed=PlaybackService.armedQueueId(),phase="";JSONObject armedState=new JSONObject();
+        if(!armed.isEmpty())try{armedState=PlaybackStatus.read(context);phase=armedState.optString("state","");}catch(Exception ignored){}
         for(int i=0;i<rows.length();i++){
             String id=rows.optJSONObject(i)==null?"":rows.optJSONObject(i).optString("id","");
             String label;
             if(id.equals(armed)){
                 String at=PlaybackService.armedSpeed()==speed()?"":"("+PlaybackService.armedSpeed()+"×)";
-                if(phase.equals("ready_to_open"))label=id.equals(playWhenReady)?"正在开播":"✓ 已就绪"+at;
+                if(phase.equals("ready_to_open"))label=id.equals(playWhenReady)?"正在开播":readyLabel(armedState)+at;
+                else if(armedState.optString("message","").contains("随机种子"))label="准备中·匹配随机种子";
                 else if(phase.equals("calibrating"))label="准备中·校准发牌";
                 else if(phase.equals("simulating"))label="准备中·预演整局";
                 else if(phase.equals("validating"))label="准备中·核对指令";

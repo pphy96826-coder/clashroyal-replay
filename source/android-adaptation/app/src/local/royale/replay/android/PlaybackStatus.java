@@ -104,14 +104,16 @@ public final class PlaybackStatus {
         if(p.equals("queued"))return "准备中 · 正在启动本机任务";
         if(p.equals("preparing"))return "准备中 · 读取回放与资源";
         if(p.equals("calibrating"))return "准备中 · 校准初始手牌";
-        if(p.equals("simulating"))return "校验中 · 原生引擎执行整局";
+        if(p.equals("simulating"))return state.optString("message","").contains("随机种子")?"校验中 · 匹配随机种子":"校验中 · 原生引擎执行整局";
         if(p.equals("validating"))return "校验中 · 核对全部指令";
         if(p.equals("loading"))return "加载中 · 等待战场画面";
-        if(p.equals("ready_to_open"))return "整局校验通过 · 准备前台加载";
+        if(p.equals("ready_to_open")){String m=ConsoleActions.pageMatch(state);
+            return m.equals("exact")?"整局校验通过 · 准备前台加载":m.equals("same_towers")?"终局近似网页 · 准备前台加载":"⚠ 终局与网页不符 · 准备前台加载";}
         if(p.equals("waiting_lobby"))return "加载中 · 等待游戏大厅就绪";
         if(p.equals("starting"))return "确认中 · 等待原生回放实际步进";
         if(p.equals("waiting_foreground"))return "等待游戏画面 · 尚未确认开始";
-        if(p.equals("playing"))return "正在播放 · "+clock(state.optLong("tick",0))+" / "+clock(state.optLong("native_terminal_tick",0));
+        if(p.equals("playing")){String m=ConsoleActions.pageMatch(state);
+            return (m.equals("exact")?"":m.equals("same_towers")?"终局近似 · ":"⚠ 与网页不符 · ")+"正在播放 · "+clock(state.optLong("tick",0))+" / "+clock(state.optLong("native_terminal_tick",0));}
         if(p.equals("diagnostic_ready"))return "诊断预览已暂停 · 非完整回放";
         if(p.equals("returning_lobby"))return "播放完成 · 正在重新打开游戏";
         if(p.equals("complete"))return "播放完成 · 已到终局";
