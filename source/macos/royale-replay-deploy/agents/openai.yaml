@@ -1,0 +1,4 @@
+interface:
+  display_name: "官服回放部署"
+  short_description: "部署官服HTML回放控制台与浏览器桥接，核验依赖和客户端版本"
+  default_prompt: "使用 $royale-replay-deploy 在我的 Mac 上部署官服 HTML 回放控制台。"

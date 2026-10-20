@@ -37,8 +37,8 @@ def run(debugger,attempt,action,receipt):
     def pointer(address):return struct.unpack('<Q',memory(address,8))[0]
     expression=None
     def call(name,args=''):
-        signature='int(*)(unsigned long long,int,unsigned long long,unsigned long long,unsigned long long)' if name=='start' else 'int(*)()' if name in ('cleanup','release') else 'unsigned long long(*)()'
-        return expression(functions['cr_web_scene_'+name],signature,args,name not in ('start','cleanup'))
+        signature='int(*)(unsigned long long,int,unsigned long long,unsigned long long,unsigned long long)' if name=='start' else 'int(*)()' if name in ('cleanup','release','return_lobby') else 'unsigned long long(*)()'
+        return expression(functions['cr_web_scene_'+name],signature,args,name not in ('start','cleanup','return_lobby'))
     def snapshot():
         address=call('result_address')
         if not address:raise RuntimeError('original scene owner is absent')
@@ -52,6 +52,7 @@ def run(debugger,attempt,action,receipt):
         # Snapshot evidence is not proof of displayed pixels or whole playback.
         result['native_replay_scene_present']=battle_observation_ready(fields)
         result['local_driver']={'bound':fields[28],'error':fields[29],'frames':fields[30],'terminal_tick':fields[31]}
+        if fields[38]:result['diagnostic_preview']={'diagnostic_only':True,'frozen':bool(fields[37]),'stop_tick':fields[38],'complete_replay_verified':False}
         result['playback_clock']={'speed':struct.unpack('<f',struct.pack('<I',fields[35]))[0],
                                   'pause_flag':bool(fields[36])}
         result['battlefield_presentation']={'frames':fields[32],'handle':fields[33],'object':hex(fields[34])}
@@ -141,10 +142,11 @@ def run(debugger,attempt,action,receipt):
         if action=='start':
             result['publication']=call('start','%sULL,%d,%dULL,%sULL,%sULL'%(
                 identity['base'],identity['pid'],binding['worker_tid'],binding['worker_handle'],binding['services_raw']))
-        elif action=='cleanup':
+        elif action in ('cleanup','return-lobby'):
             prior=snapshot()
             if prior[2]!=1:raise RuntimeError('original task pending; do not publish cleanup')
-            result['publication']=call('cleanup')
+            if action=='return-lobby' and not result.get('battle_terminal'):raise RuntimeError('terminal replay required')
+            result['publication']=call('return_lobby' if action=='return-lobby' else 'cleanup')
         else:snapshot()
         save()
         if action!='observe':

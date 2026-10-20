@@ -56,7 +56,7 @@ def pending_jobs(directory=DIRECTORY):
     return result
 
 
-def process_job(player, path, emit, *, project=PROJECT, captures=STORE/'web-html'):
+def process_job(player, path, emit, *, project=PROJECT, captures=STORE/'web-html',enqueue=None):
     path = Path(path); identifier = valid_id(path.stem); directory = path.parent
     update_status(directory, identifier, 'validating', '控制台已收到页面，正在核对回放数据。')
     try:
@@ -70,6 +70,10 @@ def process_job(player, path, emit, *, project=PROJECT, captures=STORE/'web-html
         if tag != doc.get('replay_tag') or hashlib.sha256(raw).hexdigest() != doc.get('source_sha256'): raise ValueError('桥接 HTML 编号或校验和不一致')
         result = save_capture(raw.decode('utf-8'), url, project=project, directory=captures)
         emit('downloaded', result)
+        if enqueue is not None:
+            enqueue(result['path'])
+            update_status(directory,identifier,'pending_playback','已加入待播队列；本场尚未播放，未覆盖当前战斗。')
+            return
         update_status(directory, identifier, 'preparing', 'HTML 已完整保存，正在准备官服原生回放。')
         player.play(result['path'], 1)
         update_status(directory, identifier, 'playing', '原生回放已就绪，请在安卓1观看。关闭浏览器弹窗不会停止播放。')

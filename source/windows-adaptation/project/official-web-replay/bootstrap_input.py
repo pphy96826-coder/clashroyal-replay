@@ -27,10 +27,10 @@ def validate(doc):
         pairs.append(pair)
         deck = battle['deck'+str(owner)]
         tower=towers[owner]
-        expected=[] if tower['card_key']=='tower-princess' else [{'d':tower['support_id'],'l':tower['internal_level']}]
+        expected=[{'d':tower['support_id'],'l':tower['internal_level']}] if tower.get('explicit_support',tower['card_key']!='tower-princess') else []
         if deck.get('sc',[])!=expected:
             raise ValueError('tower override differs from the native169 source binding')
-        if battle['hbd'][owner]['kt']!=16:raise ValueError('unverified king level')
+        if battle['hbd'][owner]['kt']!=tower.get('king_level',tower['source_level']):raise ValueError('king level differs from source/default policy')
         cards = deck['sp']
         order = [c['d'] for c in cards]
         if len(cards) != 8 or len(set(order)) != 8 or order != participant['deck_order']:
@@ -107,14 +107,20 @@ def render(doc, run_source=False, native_replay=None):
     text += 'static constexpr bool bootstrap_run_loaded='+str(native_replay is not None).lower()+';\n'
     desired = {p['native_owner']: p['cycle']['opening']+p['cycle']['queue'] for p in doc['participants'].values()}
     text += 'static const unsigned bootstrap_desired_deal[2][8]={'+','.join('{'+','.join(map(str,desired[s]))+'}' for s in (0,1))+'};\n'
-    text += 'struct SourceEvent {int tick,owner,kind,id,x,y,cycle_slot,physical_index;};\nstatic const SourceEvent bootstrap_events[]={\n'
-    for event in doc['events']:
+    choices = doc.get('ability_target_choices', {})
+    if (not isinstance(choices, dict) or any(not k.isdigit() or int(k)>=len(doc['events'])
+            or doc['events'][int(k)]['kind']!='activate_ability' or type(v) is not int or not 0<=v<1024
+            for k,v in choices.items())):
+        raise ValueError('invalid ability candidate selection')
+    text += 'struct SourceEvent {int tick,owner,kind,id,x,y,cycle_slot,physical_index,ability_choice;};\nstatic const SourceEvent bootstrap_events[]={\n'
+    for index, event in enumerate(doc['events']):
         request = event['native_request']
         card = event['kind'] == 'play_card'
         position = event['source_position'] if card else None
         values = [event['source_tick_20hz'], doc['participants'][event['source_side']]['native_owner'], 153 if card else 189,
                   event['base_data_id'] if card else 0, position['x'] if card else 0, position['y'] if card else 0,
-                  request['expected_cycle_slot'] if card else -1, request['deck_index'] if card else -1]
+                  request['expected_cycle_slot'] if card else -1, request['deck_index'] if card else -1,
+                  choices.get(str(index), -1)]
         text += '{'+','.join(map(str,values))+'},\n'
     text += '};\nstatic constexpr int bootstrap_source_end='+str(doc['initialization_only']['endTick'])+';\n'
     return text

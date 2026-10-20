@@ -27,7 +27,7 @@ def main():
     listing=subprocess.check_output(readelf_command()+['--dyn-syms',str(path)],text=True,timeout=10)
     wanted={'cr_web_bootstrap_start','cr_web_bootstrap_done_address','cr_web_bootstrap_result_address','cr_web_bootstrap_release',
             'cr_web_source_text_address','cr_web_source_text_size','cr_web_bootstrap_towers_address'};exports={}
-    if binding.get('scene'):wanted={'cr_web_scene_'+name for name in ('start','cleanup','done_address','result_address','release','trace_address','trace_size')}
+    if binding.get('scene'):wanted={'cr_web_scene_'+name for name in ('start','cleanup','return_lobby','done_address','result_address','release','trace_address','trace_size')}
     for line in listing.splitlines():
         parts=line.split()
         if len(parts)!=8 or parts[-1] not in wanted:continue

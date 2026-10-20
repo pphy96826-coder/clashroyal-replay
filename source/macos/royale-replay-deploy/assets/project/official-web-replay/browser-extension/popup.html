@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>发送回放到控制台</title>
+<style>
+body{width:340px;margin:0;padding:18px;font:14px system-ui;background:#eef3fa;color:#16243a}
+h3{margin:0 0 12px}#status{white-space:pre-wrap;line-height:1.6;overflow-wrap:anywhere;min-height:70px}
+button{padding:9px 12px;margin:10px 6px 0 0;border:0;border-radius:7px;background:#2269d7;color:white;cursor:pointer}
+button:disabled{opacity:.5}small{display:block;color:#52637b;line-height:1.5;margin-top:14px}
+</style>
+<h3>RoyaleAPI → 官服回放</h3>
+<div id="status" role="status">正在读取当前回放页…</div>
+<button id="retry" disabled>重新发送</button><button id="console">打开控制台</button>
+<small>只在你点击时读取当前 RoyaleAPI 回放页。不使用密码或 Cookie API，不读取 Google 登录页；完整页面仍可能含账号标识或页面令牌，仅保存在本机；不发起网页下载请求、不改代理。发送成功后即使关闭本弹窗，本地任务也会继续。</small>
+<script src="popup.js"></script></html>

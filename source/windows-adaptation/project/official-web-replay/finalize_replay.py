@@ -8,6 +8,8 @@ from bootstrap_input import validate
 
 
 def finalize(preparation,report,receipt):
+    if preparation.get('diagnostic_preview'):
+        raise ValueError('diagnostic preview is never a complete source replay or cache entry')
     validate(preparation)
     events=preparation['events'];commands=report['commands'];dispatch=report['dispatch']
     if receipt.get('errors') or not receipt.get('private_source_execution_complete'):

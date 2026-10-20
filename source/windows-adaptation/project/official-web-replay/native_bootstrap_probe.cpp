@@ -119,6 +119,19 @@ bool consume(void* v,void* layout){
     auto battle=read<uintptr_t>(d+0xa8);
     if(!readable(battle,0x440)){f[4]=5;return false;}
     f[9]=1;
+    // Only for a fully loaded private Domain. Caller may use this after the
+    // read-only deal assertions below; never for a pending/partial parser.
+    auto release_loaded=[&](){
+        reinterpret_cast<void(*)(void*)>(b+0x1366114)(domain);f[12]=1;
+        for(size_t off:{size_t(0x18),size_t(0x38),size_t(0x40),size_t(0xa8),size_t(0xb0),size_t(0xc0)})
+            if(read<uintptr_t>(d+off)){f[4]=12;return false;}
+        reinterpret_cast<void(*)(void*)>(b+0xabea80)(domain);
+        reinterpret_cast<void(*)(void*)>(b+0x1b34938)(domain);p->domain=0;f[13]=1;
+        auto table=read<uintptr_t>(p->json);
+        reinterpret_cast<void(*)(void*)>(read<uintptr_t>(table+8))(json);p->json=0;f[14]=1;
+        if(!replay_cache::release(cache,p->cache_lease,!p->domain&&!p->json)){f[4]=32;return false;}
+        return stable(p);
+    };
     // Distinct IDs are mandatory: otherwise native participant lookup can
     // select the other side's avatar/deck even when physical card rows parse.
     for(unsigned side=0;side<2;++side){
@@ -158,13 +171,13 @@ bool consume(void* v,void* layout){
     // Eight bytes per side: four hand indices followed by four queue indices.
     for(unsigned side=0;side<2;++side){
         auto root=read<uintptr_t>(battle+0xe0+side*8);
-        if(!readable(root,0x418)||read<int>(root+0x224)!=4||read<int>(root+0x234)!=4){f[4]=41;return false;}
+        if(!readable(root,0x418)||read<int>(root+0x224)!=4||read<int>(root+0x234)!=4){f[4]=41;return release_loaded();}
         auto hand=read<uintptr_t>(root+0x218),queue=read<uintptr_t>(root+0x228);
-        if(!readable(hand,16)||!readable(queue,16)){f[4]=42;return false;}
+        if(!readable(hand,16)||!readable(queue,16)){f[4]=42;return release_loaded();}
         unsigned seen=0;uint64_t packed=0;
         for(unsigned i=0;i<8;++i){
             int index=read<int>((i<4?hand:queue)+(i%4)*4);
-            if(index<0||index>=8||(seen&(1u<<index))){f[4]=43;return false;}
+            if(index<0||index>=8||(seen&(1u<<index))){f[4]=43;return release_loaded();}
             seen|=1u<<index;packed|=uint64_t(index)<<(i*8);
         }
         f[94+side]=packed;
@@ -173,7 +186,7 @@ bool consume(void* v,void* layout){
             for(unsigned i=0;i<8;++i){
                 auto card=read<uintptr_t>(cards+((packed>>(i*8))&255)*8);
                 auto definition=read<uintptr_t>(card+0x10);
-                if(read<unsigned>(definition+0x40)!=bootstrap_desired_deal[side][i]){f[4]=44;return false;}
+                if(read<unsigned>(definition+0x40)!=bootstrap_desired_deal[side][i]){f[4]=44;return release_loaded();}
             }
         }
     }
@@ -181,17 +194,10 @@ bool consume(void* v,void* layout){
         web_source::Calls calls{b,p->services,source_readable,stable,p};
         if(bootstrap_run_loaded)web_source::run_loaded(calls,p->source,d,battle,bootstrap_events,bootstrap_source_end);
         else web_source::run(calls,p->source,d,battle,bootstrap_events,bootstrap_source_end);
+        if(p->source.error==120){f[4]=45;return false;} // Retain until authorized process recovery.
     }
     // Release only our graph, only after complete native load/inspection.
-    reinterpret_cast<void(*)(void*)>(b+0x1366114)(domain);f[12]=1;
-    for(size_t off:{size_t(0x18),size_t(0x38),size_t(0x40),size_t(0xa8),size_t(0xb0),size_t(0xc0)})
-        if(read<uintptr_t>(d+off)){f[4]=12;return false;}
-    reinterpret_cast<void(*)(void*)>(b+0xabea80)(domain);
-    reinterpret_cast<void(*)(void*)>(b+0x1b34938)(domain);p->domain=0;f[13]=1;
-    auto table=read<uintptr_t>(p->json);
-    reinterpret_cast<void(*)(void*)>(read<uintptr_t>(table+8))(json);p->json=0;f[14]=1;
-    if(!replay_cache::release(cache,p->cache_lease,!p->domain&&!p->json)){f[4]=32;return false;}
-    return stable(p);
+    return release_loaded();
 }
 struct Task;using Method=void(*)(Task*)noexcept;struct Task{const Method* methods;Probe* p;};
 void destroy(Task* t)noexcept{if(t->p)t->p->destroyed.store(1,std::memory_order_release);t->p=nullptr;}

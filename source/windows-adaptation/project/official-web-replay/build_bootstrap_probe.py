@@ -55,7 +55,7 @@ def main():
         0xf5603c,0xf9fcac,0xf9fd0c,0xf9ff78,0x120f614,0x89d3e0,0x120c810,0xf9baac]
     if args.scene:
         functions.extend([0xed2438,0xec8f1c,0xecb348,0xecb554,0xed1f40,0xed22b4,0xdb3ee8,0x9a7b54,
-                          0x8d9460,0x8d9738,0x8d6bc4])
+                          0x8d9460,0x8d9738,0x8d6bc4,0xed2560])
         # Both rendering callbacks are separately read-bound. Never call a
         # guessed frame API or reuse an address from another client generation.
         scene_methods={name:s.pointer(base+0x1bd3cb0+slot) for name,slot in (('frame',0xb10),('interpolate',0xb08))}

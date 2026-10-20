@@ -19,6 +19,12 @@ def verify_retained(root,maps,identity):
         receipt_path=root/(attempt+'-result.json')
         if not receipt_path.exists():continue
         receipt=json.loads(receipt_path.read_text(encoding='utf-8'))
+        if binding.get('scene') and not released(receipt):
+            for cleanup in sorted(root.glob(attempt+'-cleanup-v*-result.json'),key=lambda p:p.stat().st_mtime,reverse=True):
+                proof=json.loads(cleanup.read_text(encoding='utf-8'))
+                if (proof.get('action')=='cleanup' and not proof.get('errors') and proof.get('detached')
+                        and proof.get('owned_loader_handle')==receipt.get('owned_loader_handle') and released(proof)):
+                    receipt=proof;break
         if binding['identity']!=identity:continue
         quarantine=root/(attempt+'-unpublished-owner.json')
         if quarantine.exists() and receipt.get('publication') is None and receipt.get('detached'):
@@ -38,7 +44,8 @@ def verify_retained(root,maps,identity):
                 address=base+symbol
                 if session.read(address,8)==b'\0'*8 and session.read(address,8)==b'\0'*8:
                     session.verify();mapped.remove(path);continue
-        if receipt.get('errors') or not receipt.get('detached') or not released(receipt):continue
+        clean_branch=receipt.get('source_search_candidate_released') is True and receipt.get('source_bootstrap_verified') is True
+        if (receipt.get('errors') and not clean_branch) or not receipt.get('detached') or not released(receipt):continue
         if receipt.get('retained_component_path')!=path or receipt.get('retained_component_sha256')!=comp['sha256']:continue
         if hashlib.sha256(__import__('pathlib').Path(comp['local_path']).read_bytes()).hexdigest()!=comp['sha256']:continue
         mapped.remove(path)

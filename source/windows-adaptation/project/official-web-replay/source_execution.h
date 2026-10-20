@@ -6,9 +6,14 @@
 namespace web_source {
 struct Selection {uintptr_t first,second;uint32_t packed;};
 struct Dispatch {uintptr_t command;int index,kind,code{-10000},tick{-1},flags{};};
+struct TowerDeathWatch {
+    uintptr_t health{},original{},table[128]{};
+    int owner{},id{},x{},y{},hp{};bool destroyed{};
+};
 struct Result {std::string text;int error{},event_index{},tick{},native_code{},executed{},finished{};
+    int first_settlement_tick{-1};
     int observed_hand[4]{},expected_card{},actual_side{-1},expected_slot{-1},available{},raw_elixir{},initial_elixir[2]{};
-    std::vector<Dispatch> dispatch;};
+    std::vector<Dispatch> dispatch;TowerDeathWatch tower_watch[6]{};unsigned tower_watch_count{};};
 struct Calls {uintptr_t base,services;bool(*readable)(uintptr_t,size_t);bool(*stable)(void*);void* context;};
 template<class T> T field(uintptr_t p){T value{};std::memcpy(&value,reinterpret_cast<void*>(p),sizeof(value));return value;}
 struct ReadRanges {
@@ -32,7 +37,97 @@ struct ReadRanges {
 };
 inline ReadRanges* current_ranges{};
 inline bool bounded_read(uintptr_t p,size_t n){return current_ranges&&current_ranges->contains(p,n);}
+// Diagnostic reads only. The native settlement counter is distinct from the
+// replay driver's later "finished" predicate; do not clear it or bypass the
+// command validator when the simulated battle ends before the source stream.
+inline std::string battle_diagnostics(const Calls& c,uintptr_t d,uintptr_t battle,const Result* result=nullptr){
+    std::string out="{\"settlement_counter\":"+std::to_string(field<int>(battle+0x198))+",\"towers\":[";
+    auto manager=field<uintptr_t>(d+0x40);
+    if(!c.readable(manager,0x28))return out+"]}";
+    int count=field<int>(manager+0x14);auto array=field<uintptr_t>(manager+8);
+    if(count<0||count>4096||(count&&!c.readable(array,count*8)))return out+"]}";
+    bool first=true;
+    for(int i=0;i<count;++i){
+        auto object=field<uintptr_t>(array+i*8);
+        if(!c.readable(object,0x210))continue;
+        auto definition=field<uintptr_t>(object+0x48);
+        if(!c.readable(definition,0x48))continue;
+        unsigned id=field<unsigned>(definition+0x40);if(id/1000000!=35)continue;
+        int n=field<int>(object+0x24);auto components=field<uintptr_t>(object+0x18);
+        if(n<1||n>64||!c.readable(components,n*8))continue;
+        for(int j=0;j<n;++j){auto health=field<uintptr_t>(components+j*8);
+            if(!c.readable(health,0x24))continue;
+            auto table=field<uintptr_t>(health);bool known=table==c.base+0x1c26f70;
+            if(!known&&result)for(unsigned k=0;k<result->tower_watch_count;++k){const auto& w=result->tower_watch[k];
+                if(!w.destroyed&&w.health==health&&table==reinterpret_cast<uintptr_t>(w.table)){known=true;break;}}
+            if(!known)continue;
+            if(!first)out+=',';first=false;
+            out+="{\"owner\":"+std::to_string(field<int>(object+0x78))+",\"data_id\":"+std::to_string(id)+
+                ",\"x\":"+std::to_string(field<int>(object+0x7c))+",\"y\":"+std::to_string(field<int>(object+0x80))+
+                ",\"hp\":"+std::to_string(field<int>(health+0x10))+",\"max_hp\":"+std::to_string(field<int>(health+0x20))+"}";
+        }
+    }
+    return out+"]}";
+}
 inline Result* active_trace{};
+inline Result* death_trace{};
+inline uintptr_t death_health_table{};
+inline void observe_tower_destructor(void* object,unsigned slot){
+    auto address=reinterpret_cast<uintptr_t>(object);
+    if(death_trace)for(unsigned i=0;i<death_trace->tower_watch_count;++i){auto& w=death_trace->tower_watch[i];
+        if(w.health!=address||w.destroyed)continue;
+        // Record BEFORE the exact native destructor destroys/releases health.
+        // This is a private per-instance observer, not an HP/rules mutation.
+        w.hp=field<int>(address+0x10);w.destroyed=true;
+        auto method=field<uintptr_t>(w.original+slot*8);
+        reinterpret_cast<void(*)(void*)>(method)(object);return;
+    }
+    if(death_trace)death_trace->error=121;
+    // Delegate the unchanged, pinned health destructor even if observation
+    // identity validation failed. Never turn diagnostics into a game crash.
+    reinterpret_cast<void(*)(void*)>(field<uintptr_t>(death_health_table+slot*8))(object);
+}
+inline void tower_destructor(void* object){observe_tower_destructor(object,0);}
+inline void tower_deleting_destructor(void* object){observe_tower_destructor(object,1);}
+inline bool watch_towers(const Calls& c,Result& result,uintptr_t d){
+    auto manager=field<uintptr_t>(d+0x40);
+    if(!c.readable(manager,0x28))return false;
+    int count=field<int>(manager+0x14);auto array=field<uintptr_t>(manager+8);
+    if(count<0||count>4096||!c.readable(array,count*8))return false;
+    for(int i=0;i<count;++i){auto object=field<uintptr_t>(array+i*8);
+        if(!c.readable(object,0x88))continue;
+        auto definition=field<uintptr_t>(object+0x48);
+        if(!c.readable(definition,0x44))continue;
+        int id=field<int>(definition+0x40);if(id/1000000!=35)continue;
+        int n=field<int>(object+0x24);auto components=field<uintptr_t>(object+0x18);
+        if(n<1||n>64||!c.readable(components,n*8))return false;
+        for(int j=0;j<n;++j){auto health=field<uintptr_t>(components+j*8);
+            if(!c.readable(health,0x28)||field<uintptr_t>(health)!=c.base+0x1c26f70)continue;
+            if(result.tower_watch_count>=6||!c.readable(c.base+0x1c26f70,1024))return false;
+            auto& w=result.tower_watch[result.tower_watch_count++];
+            w.health=health;w.original=c.base+0x1c26f70;w.owner=field<int>(object+0x78);w.id=id;
+            w.x=field<int>(object+0x7c);w.y=field<int>(object+0x80);w.hp=field<int>(health+0x10);
+            std::memcpy(w.table,reinterpret_cast<void*>(w.original),sizeof(w.table));
+            w.table[0]=reinterpret_cast<uintptr_t>(tower_destructor);
+            w.table[1]=reinterpret_cast<uintptr_t>(tower_deleting_destructor);
+        }
+    }
+    if(result.tower_watch_count!=6)return false;
+    death_trace=&result;
+    death_health_table=c.base+0x1c26f70;
+    for(auto& w:result.tower_watch){auto table=reinterpret_cast<uintptr_t>(w.table);std::memcpy(reinterpret_cast<void*>(w.health),&table,8);}
+    return true;
+}
+inline bool unwatch_towers(const Calls& c,Result& result){
+    bool okay=true;
+    for(unsigned i=0;i<result.tower_watch_count;++i){auto& w=result.tower_watch[i];
+        if(w.destroyed)continue;
+        if(!c.readable(w.health,0x28)||field<uintptr_t>(w.health)!=reinterpret_cast<uintptr_t>(w.table)){okay=false;continue;}
+        std::memcpy(reinterpret_cast<void*>(w.health),&w.original,8);
+    }
+    if(okay)death_trace=nullptr;
+    return okay;
+}
 inline uintptr_t active_base{},deploy_table[34]{},ability_table[34]{};
 inline int traced_execute(void* command,void* domain,int flags,int extra,int kind){
     // Observe ONLY our privately allocated command objects. Delegate unchanged
@@ -155,6 +250,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
     Calls c=original;ReadRanges memory;current_ranges=&memory;c.readable=bounded_read;
     const auto b=c.base;std::string commands="[",diagnostics="[";bool first=true;
     active_trace=&result;active_base=b;
+    if(!memory.refresh()||!watch_towers(c,result,d)){result.error=119;active_trace=nullptr;current_ranges=nullptr;return;}
     auto step=reinterpret_cast<int(*)(void*)>(b+0x1366f64);
     auto done=[&](){return reinterpret_cast<int(*)(void*)>(b+0xf5603c)(reinterpret_cast<void*>(battle));};
     auto started=std::chrono::steady_clock::now();
@@ -165,6 +261,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
     auto advance=[&](int target,bool allow_terminal=false){
         while(field<int>(d+0x60)<target){
             int before=field<int>(d+0x60);
+            if(result.first_settlement_tick<0&&field<int>(battle+0x198)>0)result.first_settlement_tick=before;
             if(done()){if(allow_terminal)return true;result.error=101;return false;}
             step(reinterpret_cast<void*>(d));
             if(field<int>(d+0x60)!=before+1){result.error=102;return false;}
@@ -215,7 +312,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
             auto manager=field<uintptr_t>(d+0x40);if(!c.readable(manager,0x18)){result.error=110;break;}
             int count=field<int>(manager+0x14);auto objects=field<uintptr_t>(manager+8);
             if(count<0||count>1024||!c.readable(objects,count*8)){result.error=111;break;}
-            uintptr_t actor=0;unsigned eligible=0;
+            uintptr_t actor=0;unsigned eligible=0;std::vector<uintptr_t> actors;
             for(int i=0;i<count;++i){
                 auto object=field<uintptr_t>(objects+i*8);
                 if(!c.readable(object,0x88)||field<int>(object+0x78)!=event.owner)continue;
@@ -224,9 +321,14 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
                 auto table=field<uintptr_t>(object);if(!c.readable(table,0x198))continue;
                 if(!reinterpret_cast<int(*)(void*)>(field<uintptr_t>(table+0x190))(reinterpret_cast<void*>(object)))continue;
                 if(reinterpret_cast<int(*)(void*,void*,void*)>(b+0x120f614)(reinterpret_cast<void*>(root),reinterpret_cast<void*>(d),reinterpret_cast<void*>(object)))continue;
-                actor=object;++eligible;
+                actor=object;++eligible;actors.push_back(object);
             }
-            if(eligible!=1){result.error=112;result.native_code=eligible;break;}
+            if(eligible!=1){
+                if(!eligible||event.ability_choice<0||unsigned(event.ability_choice)>=eligible){result.error=112;result.native_code=eligible;break;}
+                // Explicit search branch: ordinal within this fresh native
+                // candidate list, NEVER a stale pointer or guessed source ID.
+                actor=actors[event.ability_choice];
+            }else if(event.ability_choice>0){result.error=112;result.native_code=eligible;break;}
             command=malloc(56);if(!command){result.error=109;break;}
             reinterpret_cast<void(*)(void*,void*,void*)>(b+0xf9fcac)(command,reinterpret_cast<void*>(c.services),reinterpret_cast<void*>(actor));
         }else{result.error=113;break;}
@@ -255,6 +357,17 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
     if(!result.error)advance(end,true);
     result.tick=field<int>(d+0x60);result.finished=done();
     active_trace=nullptr;
+    auto battle_state=memory.refresh()?battle_diagnostics(c,d,battle,&result):"null";
+    if(battle_state!="null")battle_state.insert(1,"\"first_settlement_tick\":"+std::to_string(result.first_settlement_tick)+",");
+    std::string destroyed="[";
+    for(const auto& w:result.tower_watch)if(w.destroyed&&w.hp<=0){
+        if(destroyed.size()>1)destroyed+=',';
+        destroyed+="{\"owner\":"+std::to_string(w.owner)+",\"data_id\":"+std::to_string(w.id)+",\"x\":"+std::to_string(w.x)+
+            ",\"y\":"+std::to_string(w.y)+",\"hp\":0,\"health_at_destruction\":"+std::to_string(w.hp)+",\"native_destructor_observed\":true}";
+    }
+    destroyed+=']';
+    if(!unwatch_towers(c,result))result.error=120;
+    if(battle_state!="null")battle_state.insert(1,"\"destroyed_towers\":"+destroyed+",");
     current_ranges=nullptr;
     commands+=']';diagnostics+=']';
     std::string dispatch="[";unsigned accepted=0;int failed_index=-1;
@@ -265,6 +378,6 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
     }
     dispatch+=']';
     std::string hand="[";for(unsigned i=0;i<4;++i){if(i)hand+=',';hand+=std::to_string(result.observed_hand[i]);}hand+=']';
-    result.text="{\"error\":"+std::to_string(result.error)+",\"event_index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(result.tick)+",\"native_code\":"+std::to_string(result.native_code)+",\"executed\":"+std::to_string(result.executed)+",\"native_accepted\":"+std::to_string(accepted)+",\"failed_index\":"+std::to_string(failed_index)+",\"finished\":"+std::to_string(result.finished)+",\"expected_card\":"+std::to_string(result.expected_card)+",\"owner\":"+std::to_string(result.actual_side)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"initial_elixir\":["+std::to_string(result.initial_elixir[0])+','+std::to_string(result.initial_elixir[1])+"],\"last_hand\":"+hand+",\"commands\":"+commands+",\"diagnostics\":"+diagnostics+",\"dispatch\":"+dispatch+'}';
+    result.text="{\"error\":"+std::to_string(result.error)+",\"event_index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(result.tick)+",\"native_code\":"+std::to_string(result.native_code)+",\"executed\":"+std::to_string(result.executed)+",\"native_accepted\":"+std::to_string(accepted)+",\"failed_index\":"+std::to_string(failed_index)+",\"finished\":"+std::to_string(result.finished)+",\"expected_card\":"+std::to_string(result.expected_card)+",\"owner\":"+std::to_string(result.actual_side)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"initial_elixir\":["+std::to_string(result.initial_elixir[0])+','+std::to_string(result.initial_elixir[1])+"],\"last_hand\":"+hand+",\"battle_state\":"+battle_state+",\"commands\":"+commands+",\"diagnostics\":"+diagnostics+",\"dispatch\":"+dispatch+'}';
 }
 }

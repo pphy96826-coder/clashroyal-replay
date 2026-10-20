@@ -9,7 +9,7 @@ import lldb
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent/'vendor'))
 from client_session import ReadOnlySession
-from source_completion import source_completed
+from source_completion import source_completed,source_failure
 
 def run(debugger,attempt='bootstrap'):
     if not re.fullmatch(r'bootstrap(?:-v(?:[2-9]|[1-9][0-9]+))?',attempt):raise ValueError('invalid attempt')
@@ -97,7 +97,7 @@ def run(debugger,attempt='bootstrap'):
             values=struct.unpack('<48Q',memory(address,384))
             r['initial_towers']=[dict(zip(('owner','data_id','x','y','hp','max_hp','level_index','king'),values[i:i+8])) for i in range(0,48,8)]
             save()
-        if binding.get('source_execution'):
+        if binding.get('source_execution') and f[4]==0:
             source_address=call('cr_web_source_text_address');source_size=call('cr_web_source_text_size')
             if not source_address or not 0<source_size<262144:raise RuntimeError('missing bounded source execution report')
             source=json.loads(memory(source_address,source_size).decode())
@@ -106,7 +106,8 @@ def run(debugger,attempt='bootstrap'):
             r['source_commands_generated']=len(source['commands'])
         rejected=f[:5]==[1,1,1,1,30] and f[87]==1 and not any(f[80:87])
         initialized=f[:4]==[1,1,1,1] and f[4]==0 and f[6:8]==[1,4] and f[9:16]==[1,2,1,1,1,1,6] and not any(f[80:83]) and f[83]==1 and f[88:94]==[5,0,0,2,4,0]
-        if not rejected and not initialized:
+        clean_deal_failure=f[:4]==[1,1,1,1] and f[4] in (41,42,43,44) and f[6:8]==[1,4] and f[12:15]==[1,1,1] and not any(f[80:83]) and f[83]==1 and f[88:94]==[5,0,0,2,4,0]
+        if not rejected and not initialized and not clean_deal_failure:
             raise RuntimeError('source native initialization/cleanup verification failed')
         r['resource_preflight_rejected']=rejected
         public()
@@ -126,11 +127,13 @@ def run(debugger,attempt='bootstrap'):
             if comp['device_path'] in ReadOnlySession(identity).verify():raise RuntimeError('component remains mapped')
             r['component_unloaded']=True
         r['source_bootstrap_verified']=initialized
-        if binding.get('source_execution'):
+        if clean_deal_failure:r['errors'].append('原生初始牌序校验失败；已释放私有对局数据')
+        if binding.get('source_execution') and initialized:
             r['private_source_execution_complete']=source_completed(source,binding['source_event_count'])
             if not r['private_source_execution_complete']:
-                r['errors'].append('Source execution rejected at event %d, tick %d: adapter %d, native %d'%(
-                    source['event_index'],source['tick'],source['error'],source['native_code']))
+                r['errors'].append(source_failure(source))
+                if source.get('error')==112 and source.get('native_code',0)>1:
+                    r['source_search_candidate_released']=True
         if rejected:r['errors'].append('Typed Location15000061 cache lease precondition rejected; parser not called')
     except BaseException as error:
         r['errors'].append(type(error).__name__+': '+str(error))

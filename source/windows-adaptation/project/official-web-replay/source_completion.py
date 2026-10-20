@@ -1,6 +1,22 @@
 """Pure completion gate for any bound source stream, not one 139-event fixture."""
 
 
+def source_failure(report):
+    """Name the rejected queued command, not the next unsubmitted event."""
+    if report.get('error')==112:
+        return '第%d条技能的合法目标数为%d，技能目标未唯一确定（适配器112）'%(report.get('event_index',-1)+1,report.get('native_code',0))
+    failed=next((row for row in report.get('dispatch',[]) if row.get('code',-1)>0),None)
+    if failed:
+        index=failed['index'];tick=failed['tick'];code=failed['code']
+        detail=next((row for row in report.get('diagnostics',[]) if row.get('index')==index),{})
+        message='第%d条指令（%.2f秒，卡牌ID %s）被原生引擎拒绝，返回码%d'%(index+1,tick/20,detail.get('card','未知'),code)
+        if code==4 and failed.get('kind')==153:
+            message+='：模拟已进入结算，不能继续出牌；这不是英雄技能目标冲突。模拟提前结算的原因仍需核对'
+        return message
+    return '源指令执行未完成：事件%d，tick %d，适配器%d，原生返回码%d'%(
+        report.get('event_index',-1),report.get('tick',-1),report.get('error',-1),report.get('native_code',-1))
+
+
 def source_completed(report, expected_count):
     if type(expected_count) is not int or expected_count < 1:
         raise ValueError('an explicit positive source event count is required')

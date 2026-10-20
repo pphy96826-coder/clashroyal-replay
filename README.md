@@ -1,4 +1,16 @@
-# MuMu Windows 回放适配
+# Clash Royale HTML 回放：Android / macOS / Windows
+
+## 2026-10-19 同步更新
+
+新版三平台资源见 [Releases](https://github.com/pphy96826-coder/clashroyal-replay/releases)。本次同步回放队列、等级支持、技能分支诊断、原生塔血校验与失败恢复。详见 [更新说明与验证范围](docs/更新说明-20261019.md)。
+
+- Android：`source/android-adaptation/` 是控制台源码；APK及内置运行依赖在发布包中，仍需要兼容的现有root调试环境。
+- macOS：`source/macos/royale-replay-deploy/` 为可独立部署的源码Skill，安装到新目录，沿用已有MuMu实例。
+- Windows：保留已验证的MuMu翻译运行时连接层；已有完整环境可用本次小体积更新包，不必重新下载下述旧版3GB环境。关闭控制台后运行更新包的 `Update-Windows.cmd`。
+
+结束后当前采用“核验归属→释放现场→自动重新打开客户端”的兜底方案，**不是免重启返回大厅**。Windows新版尚未在Windows实机验收；不要将源码检查或Mac编译成功等同于实机播放验证。
+
+## Windows 原完整环境（继续保留）
 
 用于在 Windows 与 MuMu Android 12 实例上运行腾讯客户端本地回放，支持 Edge 插件发送 RoyaleAPI 完整回放网页，以及本地 HTML 导入。
 

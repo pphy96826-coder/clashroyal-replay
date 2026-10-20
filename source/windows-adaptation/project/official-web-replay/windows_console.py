@@ -60,6 +60,7 @@ def main():
     app=tk.Tk();app.title('官服 HTML 回放 · Windows 适配预览');app.geometry('1080x760')
     inbox=queue.Queue();client=WorkerClient(inbox);busy=False;running_tool=False;pending_play=None
     path=tk.StringVar();speed=tk.StringVar(value='1');status=tk.StringVar(value='就绪 · 尚未连接设备')
+    saved_hash=None
     ttk.Label(app,text='官服 HTML 战斗回放',font=('Microsoft YaHei UI',22)).pack(anchor='w',padx=24,pady=(20,8))
     ttk.Label(app,text='MuMu 当前实例 · 已接通网页一键播放与本地 HTML 导入。').pack(anchor='w',padx=24)
     row=ttk.Frame(app);row.pack(fill='x',padx=24,pady=16)
@@ -126,10 +127,25 @@ def main():
         app.after(400,lambda:app.attributes('-topmost',False));app.focus_force()
     ttk.Label(app,textvariable=status,wraplength=1000).pack(anchor='w',padx=24,pady=6)
     progress=ttk.Progressbar(app,maximum=100);progress.pack(fill='x',padx=24,pady=8)
+    queue_status=tk.StringVar(value='队列为空；可在播放中继续添加HTML')
+    queue_controls=ttk.Frame(app);queue_controls.pack(fill='x',padx=24,pady=4)
+    def queue_send(request):
+        try:client.start();client.send(request)
+        except (OSError,RuntimeError) as error:status.set(str(error));log(error)
+    def add_queue():
+        files=filedialog.askopenfilenames(filetypes=[('回放 HTML 或诊断包','*.html *.htm *.diagnostic.json')])
+        if files:queue_send(dict(command='queue-add',htmls=list(files)))
+    ttk.Button(queue_controls,text='添加多个 HTML 到队列…',command=add_queue).pack(side='left')
+    ttk.Button(queue_controls,text='播放下一个',command=lambda:queue_send(dict(command='queue-next',speed=float(speed.get())))).pack(side='left',padx=8)
+    def remove_saved():
+        if saved_hash and messagebox.askyesno('移除保存选择','只移除保存入口；原HTML、缓存和记录保留。'):
+            queue_send(dict(command='remove-saved',source_sha256=saved_hash))
+    ttk.Button(queue_controls,text='移除已保存回放',command=remove_saved).pack(side='left')
+    ttk.Label(app,textvariable=queue_status).pack(anchor='w',padx=24,pady=4)
     output=scrolledtext.ScrolledText(app,font=('Consolas',10),wrap='word');output.pack(fill='both',expand=True,padx=24,pady=10)
     ttk.Label(app,text='实际战场在 MuMu 中显示。网页播放时点击 Edge 工具栏的“RoyaleAPI → 官服回放”插件。').pack(anchor='w',padx=24,pady=(0,14))
     def poll():
-        nonlocal busy,running_tool,pending_play
+        nonlocal busy,running_tool,pending_play,saved_hash
         while not inbox.empty():
             doc=inbox.get();event=doc.get('event');value=doc.get('value')
             if event=='busy':
@@ -151,7 +167,14 @@ def main():
                 progress['value']=min(100,100*elapsed/max(duration,1));status.set(f'原生实际进度 {elapsed:.1f} / {duration:.1f} 秒')
             elif event=='tool_exit':running_tool=False;status.set('步骤结束：'+str(value));log(status.get())
             elif event=='complete':
-                progress['value']=100;status.set('回放已完成，正在刷新客户端…');return_to_console()
+                progress['value']=100;status.set('回放已完成，可播放队列下一场');return_to_console()
+            elif event=='queue':
+                waiting=[row for row in value if row['state'] in ('queued','parsing','ready')]
+                queue_status.set('待播 '+str(len(waiting))+' 场 · '+(waiting[0]['name'] if waiting else '队列为空'))
+            elif event=='saved':
+                saved_hash=value['source_sha256'] if value else None
+            elif event in ('recovered','lobby-ready'):
+                busy=False;pending_play=None;status.set(str(value));log(value);return_to_console()
             elif event=='playback_ended':
                 busy=False;pending_play=None;play_button.configure(state='normal')
                 replay_button.configure(state='normal' if value.get('can_replay') else 'disabled')

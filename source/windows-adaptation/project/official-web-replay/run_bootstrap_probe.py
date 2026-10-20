@@ -6,14 +6,14 @@ ROOT=Path(__file__).resolve().parent
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--attempt',default='bootstrap')
-    parser.add_argument('--action',choices=('start','observe','cleanup'),default='start')
+    parser.add_argument('--action',choices=('start','observe','cleanup','return-lobby'),default='start')
     parser.add_argument('--receipt');args=parser.parse_args()
     attempt=args.attempt
     scene=bool(re.fullmatch(r'scene-v[1-9][0-9]*',attempt))
     if not scene and not re.fullmatch(r'bootstrap(?:-v(?:[2-9]|[1-9][0-9]+))?',attempt):raise ValueError('invalid attempt')
     if not scene and (args.action!='start' or args.receipt):raise ValueError('bootstrap only supports a single start')
     receipt=args.receipt or attempt
-    if not re.fullmatch(re.escape(attempt)+r'(?:-(?:observe|cleanup)-v[1-9][0-9]*)?',receipt):raise ValueError('invalid immutable receipt')
+    if not re.fullmatch(re.escape(attempt)+r'(?:-(?:observe|cleanup|return-lobby)-v[1-9][0-9]*)?',receipt):raise ValueError('invalid immutable receipt')
     if (ROOT/(receipt+'-result.json')).exists():raise FileExistsError('existing task must be observed, never restarted')
     if args.action=='start' and receipt!=attempt:raise ValueError('start requires original receipt')
     binding=json.loads((ROOT/(attempt+'-binding.json')).read_text(encoding="utf-8"));identity=binding['identity']

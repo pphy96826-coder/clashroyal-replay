@@ -24,6 +24,9 @@ from timing_policy import offset_for, recipe_for
 from replay_content_cache import content_digest
 from replay_lifecycle import ClientUnavailable,client_generation
 from tower_profiles import tower_key
+from align_native_deal import calibrate,deck_fingerprint
+from saved_replay import remember
+from failure_recovery import explanation
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT.parent/'vendor'
@@ -60,7 +63,9 @@ def recipe_digest():
 
 def receipt_ok(doc, *, scene=False, execution=False):
     if doc.get('errors') or not doc.get('detached'):
-        raise RuntimeError('原生步骤未安全完成，请查看本轮日志；不会自动重试。')
+        reason='；'.join(map(str,doc.get('errors',[]))) or '调试器未确认分离'
+        cleanup='组件已安全卸载' if doc.get('component_unloaded') and doc.get('detached') else '现场保留，需安全释放后再播放'
+        raise RuntimeError('回放未启动：'+reason+'；'+cleanup+'。不会自动重试。')
     if scene:
         if not doc.get('native_replay_scene_present') or doc.get('local_driver', {}).get('error'):
             raise RuntimeError('回放场景未就绪；没有把加载成功当作播放成功。')
@@ -162,6 +167,12 @@ def scene_metadata(attempt):
         raise ValueError('existing scene source differs')
     if native['native_accepted_events'] != binding['source_event_count'] or len(native['native_replay']['cmd']) != binding['source_event_count']:
         raise ValueError('existing scene command count differs')
+    if native.get('diagnostic_only') is True:
+        preview=native['diagnostic_preview']
+        doc=dict(doc,diagnostic_preview=preview)
+        return doc,dict(attempt=attempt,duration=preview['stop_tick']/20,speed=binding['playback_speed'],
+                        diagnostic_only=True,complete_replay_verified=False,
+                        preview_event_count=preview['preview_event_count'],original_source_event_count=preview['original_source_event_count'])
     return doc, dict(attempt=attempt, duration=native['native_terminal_tick']/20, speed=binding['playback_speed'])
 
 
@@ -235,6 +246,78 @@ class Player:
         STORE.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.folder = None
         self.last_device_serial = None
+        self.last_attempt = None
+
+    def recover_failed(self, error):
+        """Restart only a detached, bound failed attempt in this exact game.
+
+        No retries, module unloading, global ADB reset or foreign-battle stop.
+        Unknown/pending debugger state remains a visible manual-recovery case.
+        """
+        if self.folder is None:self.new_folder()
+        stale_failure=False
+        if not self.last_attempt:
+            observation=read_json(self.observation())
+            session=ReadOnlySession(observation['identity']);maps=session.verify()
+            for file in sorted(ROOT.glob('scene-v*-component.json'),key=lambda p:p.stat().st_mtime,reverse=True):
+                component=read_json(file);name=file.name.removesuffix('-component.json')
+                if component['device_path'] not in maps:continue
+                bound=read_json(ROOT/(name+'-binding.json'))['identity']
+                current=observation['identity']
+                if any(bound.get(k)!=current.get(k) for k in ('pid','process_start_time','serial','library_sha256')):continue
+                failures=[read_json(path) for path in ROOT.glob(name+'-*-result.json')]
+                if not any(r.get('detached') and r.get('errors') for r in failures):continue
+                self.last_attempt=name;stale_failure=True;break
+            if not self.last_attempt:return False
+        attempt = self.last_attempt
+        binding = read_json(ROOT/(attempt+'-binding.json'))
+        comp = read_json(ROOT/(attempt+'-component.json'))
+        result = read_json(ROOT/(attempt+'-result.json'))
+        if not stale_failure and not result.get('errors') and (binding.get('scene') or not binding.get('source_execution') or result.get('private_source_execution_complete')):
+            return False
+        if not result.get('detached'):
+            raise RuntimeError('调试器尚未确认退出，未自动重启客户端')
+        if result.get('component_unloaded'):
+            return False  # Already clean; avoid an unnecessary cold start.
+        session = ReadOnlySession(binding['identity'])
+        maps = session.verify()
+        if not any(len(row.split())>=6 and row.split()[-1]==comp['device_path'] for row in maps.splitlines()):
+            raise RuntimeError('无法确认失败组件归属，未自动关闭游戏')
+        if binding.get('scene'):
+            try:
+                owned_scene_state(attempt)
+            except (ValueError,RuntimeError):
+                # A reconnect can replace the public resource manager inside
+                # the SAME PID. Do not unload its borrowed old graph. A strict
+                # idle lobby plus this exact detached mapped owner permits the
+                # user-authorized client-only restart, never a foreign battle.
+                observation=read_json(self.observation())
+                identity=observation['identity']
+                if any(identity.get(k)!=binding['identity'].get(k) for k in ('pid','process_start_time','serial','library_sha256')):
+                    raise RuntimeError('新客户端不继承旧现场，未关闭它')
+                status=subprocess.check_output(session.adb+['shell',f'cat /proc/{session.pid}/status'],text=True,timeout=10)
+                if not any(line.startswith('TracerPid:') and line.split()[1]=='0' for line in status.splitlines()):raise RuntimeError('仍有调试器占用')
+                session.verify()
+                subprocess.run(session.adb+['shell','am','force-stop',PACKAGE],check=True,timeout=15,capture_output=True)
+                self.active=None
+                subprocess.run(session.adb+['shell','am','start','-n',ACTIVITY],check=True,timeout=20,capture_output=True)
+            else:
+                self.active = attempt
+                self.stop_owned()
+        else:
+            observation = self.observation()  # Strict idle lobby, no foreign battle.
+            if read_json(observation)['identity'] != binding['identity']:
+                raise RuntimeError('客户端代际已改变，未关闭新进程')
+            status = subprocess.check_output(session.adb+['shell',f'cat /proc/{session.pid}/status'],text=True,timeout=10)
+            if not any(line.startswith('TracerPid:') and line.split()[1]=='0' for line in status.splitlines()):
+                raise RuntimeError('客户端仍有调试器占用，未强制关闭')
+            session.verify()
+            subprocess.run(session.adb+['shell','am','force-stop',PACKAGE],check=True,timeout=15,capture_output=True)
+            self.active = None
+            subprocess.run(session.adb+['shell','am','start','-n',ACTIVITY],check=True,timeout=20,capture_output=True)
+        self.emit('recovered', explanation(error)+' 已清除本次失败进程并重新打开游戏；请等待大厅就绪后选择回放。未自动重试。')
+        self.last_attempt = None
+        return True
 
     def stage(self, text):
         self.emit('status', text); self.emit('log', text)
@@ -289,11 +372,21 @@ class Player:
         self.folder.mkdir(mode=0o700); self.emit('run', str(self.folder))
 
     def discover_owned(self):
+        device=ensure_current_device_binding()
+        adb=['adb','-s',device['serial']]
+        found=subprocess.run(adb+['shell','pidof',PACKAGE],capture_output=True,text=True,timeout=10)
+        if found.returncode==1 and not found.stdout.strip():return None
+        if found.returncode or len(found.stdout.split())!=1:raise RuntimeError('无法确认唯一游戏进程')
+        pid=int(found.stdout.strip())
+        stat=subprocess.check_output(adb+['shell','cat',f'/proc/{pid}/stat'],text=True,timeout=10)
+        start=stat[stat.rfind(')')+2:].split()[19]
         for file in sorted(ROOT.glob('scene-v*-result.json'), key=lambda p: p.stat().st_mtime, reverse=True):
             name = file.name.removesuffix('-result.json')
             if not re.fullmatch(r'scene-v[1-9][0-9]*', name):
                 continue
             try:
+                identity=read_json(ROOT/(name+'-binding.json'))['identity']
+                if (identity.get('serial'),identity.get('pid'),identity.get('process_start_time'))!=(device['serial'],pid,start):continue
                 state = owned_scene_state(name)
             except (ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError):
                 continue
@@ -326,6 +419,34 @@ class Player:
             raise RuntimeError('本地回放已停止；重新打开游戏失败：' + str(exc)) from exc
         self.emit('stopped', '回放已停止，游戏客户端已重新打开。请保持在大厅。')
 
+    def finish_owned(self):
+        """Terminal-only release/reopen fallback; direct Home reconstruction is unsafe."""
+        if not self.active:return
+        attempt=self.active
+        current=owned_scene_state(attempt)
+        _,metadata=scene_metadata(attempt)
+        if metadata.get('diagnostic_only') or current['tick']/20<metadata['duration']:
+            raise RuntimeError('尚未完成的回放不能当作终局自动退出')
+        self.stage('回放终局：安全释放本地现场并自动重新打开客户端；当前不是免重启返回。')
+        self.stop_owned()  # Fresh identity/table proof; only this owned client.
+        self.last_attempt=None
+        deadline=time.monotonic()+45;ready=False
+        while time.monotonic()<deadline:
+            try:self.observation();ready=True;break
+            except (ValueError,RuntimeError):time.sleep(1)
+        self.emit('lobby-ready','游戏已自动重新打开'+('并确认回到大厅。' if ready else '，请等待启动加载或登录。')+'客户端使用安全重启兜底；可选择下一场。')
+        return dict(client_reopened=True,lobby_verified=ready,seamless=False)
+        self.command('observe_current_client.py', '--output', path)
+        doc = read_json(path)
+        serial=doc['identity']['serial']
+        if serial!=self.last_device_serial:
+            self.emit('log','已自动连接我的安卓-1：'+serial+'；客户端身份重新核验，不沿用旧进程地址。')
+            self.last_device_serial=serial
+        state = doc['scene_state']
+        if (state.get('kind'), state.get('state'), state.get('domain_mode'), state.get('battle_present')) != (0, 9, 1, False):
+            raise RuntimeError('请让已有安卓1进入大厅；其他对局不会被覆盖。')
+        return path
+
     def observation(self):
         path = self.folder / ('client-' + str(time.time_ns()) + '.json')
         self.command('observe_current_client.py', '--output', path)
@@ -357,7 +478,7 @@ class Player:
             self.cancel.wait(3)
         raise RuntimeError('大厅尚未准备好，请自行完成登录后再次播放。' + str(last))
 
-    def probe(self, prep, observation, *, execute=False, native=None, scene=False, speed=1):
+    def probe(self, prep, observation, *, execute=False, native=None, scene=False, speed=1, candidate=False):
         attempt = allocate_attempt(scene)
         args = ['--attempt', attempt, '--client-observation', observation, '--preparation', prep]
         if execute: args += ['--source-execution']
@@ -365,6 +486,7 @@ class Player:
         if scene: args += ['--scene', '--playback-speed', speed]
         self.command('build_bootstrap_probe.py', *args)
         self.command('deploy_bootstrap_probe.py', '--attempt', attempt)
+        self.last_attempt = attempt
         self.command('run_bootstrap_probe.py', '--attempt', attempt, native=True)
         result_path = ROOT / (attempt + '-result.json'); result = read_json(result_path)
         if scene and result.get('fields', [0] * 48)[5]:
@@ -386,12 +508,18 @@ class Player:
                     result_path = ROOT / (receipt + '-result.json'); result = read_json(result_path)
                     break
                 self.cancel.wait(1)
-        receipt_ok(result, scene=scene, execution=execute and not scene)
+        if candidate:
+            from mumu_lifecycle import released
+            if (not result.get('detached') or not result.get('source_bootstrap_verified')
+                    or not released(result)):
+                receipt_ok(result, execution=True)
+        else: receipt_ok(result, scene=scene, execution=execute and not scene)
         self.checkpoint()
         return attempt, result_path
 
     def play(self, html, speed=1):
         self.checkpoint(); self.new_folder()
+        self.last_attempt = None
         path = Path(html).expanduser().resolve()
         if not path.is_file() or path.suffix.lower() not in ('.html', '.htm'):
             raise ValueError('请选择已保存的 RoyaleAPI 回放 HTML 文件。')
@@ -404,6 +532,7 @@ class Player:
         source = self.folder / 'source.json'
         self.command('import_replay.py', source_html, '--project-root', PROJECT, '--output', source)
         doc = read_json(source)
+        self.emit('saved', remember(STORE, source_html, doc))
         timing_ticks = offset_for(doc['replay_tag'])
         recipe = recipe_for(recipe_digest(), timing_ticks)
         doc['execution_timing_offset_seconds'] = timing_ticks / 20
@@ -415,7 +544,7 @@ class Player:
         for deck in doc['decks']:
             tower=deck.get('tower') or {}
             tower_key(tower.get('card_key'))
-            if tower.get('level')!=16:raise ValueError('当前天梯回放需要明确的16级塔楼；不会猜测国王塔等级。')
+            if type(tower.get('level')) is not int or not 1<=tower['level']<=16:raise ValueError('需要明确且受当前客户端支持的塔楼等级（1至16级）。')
         cache = STORE / ('cache-' + html_sha + '-' + recipe[:16] + '.json')
         cached = None
         if cache.exists():
@@ -456,11 +585,40 @@ class Player:
                 shifted = self.folder / 'preparation-timing.json'
                 self.command('timing_policy.py', '--preparation', prep0, '--offset-ticks', timing_ticks, '--output', shifted)
                 prep0 = shifted
-            _, deal = self.probe(prep0, observation)
-            prep = self.folder / 'preparation-aligned.json'
-            self.command('align_native_deal.py', prep0, deal, '--output', prep)
+            seen=[]
+            for calibration in range(12):
+                observed_prep=read_json(prep0);seen.append(deck_fingerprint(observed_prep))
+                _, deal = self.probe(prep0, observation)
+                aligned=calibrate(observed_prep,read_json(deal),seen)
+                prep=self.folder/('preparation-calibrated-'+str(calibration)+'.json')
+                write_new(prep,aligned)
+                if aligned['native_deal_ready']:break
+                self.stage('校准原生牌序：卡牌相关发牌规则需要额外初始化核验；尚未执行源指令。')
+                prep0=prep
+            else:raise RuntimeError('原生牌序未能在有界校准内匹配；初始化现场已安全释放，未执行回放指令。')
             self.stage('4/5 原生引擎完整预演，逐条核对全部指令，再校验导入。')
-            attempt, receipt = self.probe(prep, observation, execute=True)
+            from ability_search import search,terminal_hp_matches
+            selected_evidence={}
+            def execute_candidate(candidate,number):
+                candidate_path=self.folder/('ability-candidate-'+str(number)+'.json')
+                write_new(candidate_path,candidate)
+                candidate_attempt,candidate_receipt=self.probe(candidate_path,observation,execute=True,candidate=True)
+                evidence=dict(preparation=str(candidate_path),attempt=candidate_attempt,receipt=str(candidate_receipt))
+                selected_evidence.update(evidence)
+                return read_json(ROOT/(candidate_attempt+'-source-execution.json')),evidence
+            try:
+                from portable_config import translated
+                chosen,report,search_result=search(read_json(prep),execute_candidate,
+                    lambda candidate,result:terminal_hp_matches(doc,candidate,result),cancelled=self.cancel.is_set,
+                    max_attempts=16 if translated() else 256)
+            except Exception as error:
+                if hasattr(error,'search_report'):write_new(self.folder/'ability-search.json',error.search_report)
+                raise
+            write_new(self.folder/'ability-search.json',search_result)
+            if search_result['ambiguous']:
+                self.stage('技能候选已找到终局塔血匹配；这是推断匹配，不是原始技能目标或过程唯一性证明。')
+            prep=Path(selected_evidence['preparation'])
+            attempt=selected_evidence['attempt'];receipt=Path(selected_evidence['receipt'])
             execution = ROOT / (attempt + '-source-execution.json'); native = self.folder / 'complete-native.json'
             self.command('finalize_replay.py', '--preparation', prep, '--report', execution, '--receipt', receipt, '--output', native)
             check_attempt, check_receipt = self.probe(prep, observation, execute=True, native=native)
@@ -473,6 +631,11 @@ class Player:
         self.emit('playing', dict(attempt=attempt, event_count=doc['retained_action_count'],
                                  duration=read_json(native)['native_terminal_tick'] / 20,
                                  speed=speed, receipt=str(receipt), timing_offset_seconds=timing_ticks / 20))
+
+
+    def play_diagnostic(self,html,evidence,speed=1):
+        from desktop_diagnostic import play
+        return play(self,html,evidence,speed)
 
 
 class OperationLock:

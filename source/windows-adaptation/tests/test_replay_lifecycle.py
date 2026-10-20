@@ -34,15 +34,25 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(worker.emit.call_args.args[0],'playback_ended')
 
     def test_completion_refreshes_client_and_exposes_replay_choice(self):
-        worker=self.worker();worker.finish(worker.playback)
-        worker.player.stop_owned.assert_called_once();self.assertIsNone(worker.playback)
+        worker=self.worker();worker.player.finish_owned.return_value=dict(client_reopened=True,lobby_verified=False,seamless=False);worker.finish(worker.playback)
+        worker.player.finish_owned.assert_called_once();worker.player.stop_owned.assert_not_called();self.assertIsNone(worker.playback)
         event,value=worker.emit.call_args.args
-        self.assertEqual(event,'playback_ended');self.assertTrue(value['can_replay']);self.assertTrue(value['client_refreshed'])
+        self.assertEqual(event,'playback_ended');self.assertTrue(value['can_replay']);self.assertTrue(value['client_refreshed']);self.assertFalse(value['returned_lobby'])
 
     def test_replay_reuses_last_file_and_speed(self):
-        worker=self.worker();worker.launch=lambda action:action()
+        worker=self.worker();worker.playback=None;worker.launch=lambda action:action()
         worker.command(dict(command='replay'))
         worker.player.play.assert_called_once_with('sample.html',1)
+
+    def test_new_file_during_playback_does_not_replace_current(self):
+        worker=self.worker();before=worker.playback
+        with patch.object(worker,'parse_queued'),patch.object(worker.queue,'add') as add:
+            worker.command(dict(command='play',html='next.html',speed=1))
+            import time
+            deadline=time.monotonic()+1
+            while not add.called and time.monotonic()<deadline:time.sleep(.01)
+        self.assertIs(worker.playback,before);worker.player.play.assert_not_called()
+        add.assert_called_once_with('next.html')
 
     def test_exit_without_owned_scene_is_immediately_idle(self):
         worker=self.worker();worker.player.active=None;worker.player.discover_owned.return_value=None

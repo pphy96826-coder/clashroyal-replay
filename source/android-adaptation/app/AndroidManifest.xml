@@ -1,0 +1,34 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.royale.replay.android">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+  <queries><package android:name="com.tencent.tmgp.supercell.clashroyale" /></queries>
+  <application android:label="安卓回放控制台" android:allowBackup="false" android:debuggable="true" android:extractNativeLibs="true" android:theme="@android:style/Theme.Holo.Light.NoActionBar">
+    <service android:name=".PlaybackService" android:exported="false" />
+    <activity android:name=".BrowserActivity" android:exported="false" />
+    <activity android:name=".BrowserImportActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="royalereplay" android:host="import" android:path="/v1" />
+      </intent-filter>
+    </activity>
+    <activity android:name=".MainActivity" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+    </activity>
+  </application>
+  <instrumentation android:name=".ReplayTests" android:targetPackage="local.royale.replay.android" android:label="Offline replay input tests" />
+  <instrumentation android:name=".ConsoleTests" android:targetPackage="local.royale.replay.android" android:label="Offline console status and proxy policy tests" />
+  <instrumentation android:name=".PreparationReleaseIntegrationTests" android:targetPackage="local.royale.replay.android" android:label="Verify pre-native failure release without touching game" />
+  <instrumentation android:name=".LifecycleIntegrationTests" android:targetPackage="local.royale.replay.android" android:label="Reconcile confirmed exited replay process without starting or stopping game" />
+  <instrumentation android:name=".TerminalExitTests" android:targetPackage="local.royale.replay.android" android:label="Explicit terminal-only safe exit integration test" />
+  <instrumentation android:name=".StandaloneTests" android:targetPackage="local.royale.replay.android" android:label="Authorized read-only local runtime check" />
+  <instrumentation android:name=".EmbeddedParserTests" android:targetPackage="local.royale.replay.android" android:label="Phone embedded parser parity check" />
+  <instrumentation android:name=".LocalPreparationTests" android:targetPackage="local.royale.replay.android" android:label="Read-only phone native preparation test" />
+  <instrumentation android:name=".LocalToolsTests" android:targetPackage="local.royale.replay.android" android:label="Phone empty debugger self-check" />
+  <instrumentation android:name=".LocalBuildTests" android:targetPackage="local.royale.replay.android" android:label="Phone real replay component compilation" />
+  <instrumentation android:name=".LocalPlaybackTests" android:targetPackage="local.royale.replay.android" android:label="Authorized phone native replay pipeline" />
+  <instrumentation android:name=".LocalRecoveryTests" android:targetPackage="local.royale.replay.android" android:label="Observe original completed initialization, never republish" />
+</manifest>

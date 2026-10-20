@@ -11,6 +11,9 @@
 #include "native_tower_check.h"
 #include <atomic>
 #include <new>
+#ifndef WEB_DIAGNOSTIC_STOP_TICK
+#define WEB_DIAGNOSTIC_STOP_TICK 0
+#endif
 
 namespace {
 struct SceneProbe {
@@ -20,6 +23,8 @@ struct SceneProbe {
     unsigned cleanup_entered{},cleanup_done{},stage{},failure{},published{};
     uintptr_t controller_table[130]{};
     unsigned driver_bound{},driver_error{},driver_frames{},terminal_tick{};
+    unsigned diagnostic_frozen{};
+    unsigned lobby_requested{};
     unsigned presentation_frames{},presentation_handle{};
     uintptr_t presentation{};
     float accumulator{};
@@ -84,6 +89,7 @@ bool bind_source_trace(SceneProbe* p,uintptr_t domain,uintptr_t battle){
 void local_frame(void* object,float elapsed){
     auto* p=state;auto controller=reinterpret_cast<uintptr_t>(object);
     if(!p||controller!=p->replay_controller||p->driver_error)return;
+    if(p->lobby_requested)return;
     if(cr_noop_current_tid()!=p->tid||!stable(p)||read<uintptr_t>(controller)!=reinterpret_cast<uintptr_t>(p->controller_table+2)||
        read<int>(controller+0x58)!=1||read<int>(controller+0x30)!=9){p->driver_error=1;return;}
     auto d=read<uintptr_t>(controller+0x90),scene=read<uintptr_t>(controller+0x50);
@@ -98,11 +104,17 @@ void local_frame(void* object,float elapsed){
     float speed=read<float>(controller+0x74);
     if(!replay_frame_clock::valid_rate(speed)){p->driver_error=6;return;}
     if(read<unsigned char>(controller+0x17c))delta=0; // Native pause state.
+    if(p->diagnostic_frozen)delta=0; // Freeze presentation time too, keep rendering.
     p->accumulator+=delta*speed;
     auto finished=[&](){return reinterpret_cast<int(*)(void*)>(p->base+0xf5603c)(reinterpret_cast<void*>(battle));};
     unsigned steps=0;
     while(p->accumulator>=.05f&&!finished()){
         auto before=read<int>(d+0x60);
+        // Explicit human-inspection boundary, NOT a native terminal event.
+        // Do not alter the engine's end rules or label a prefix as complete.
+        if(WEB_DIAGNOSTIC_STOP_TICK>0&&before>=WEB_DIAGNOSTIC_STOP_TICK){
+            p->accumulator=0;p->diagnostic_frozen=1;break;
+        }
         reinterpret_cast<int(*)(void*)>(p->base+0x1366f64)(reinterpret_cast<void*>(d));
         if(read<int>(d+0x60)!=before+1||++steps>10){p->driver_error=7;return;}
         p->accumulator-=.05f;
@@ -126,7 +138,7 @@ void local_frame(void* object,float elapsed){
     // Terminal observers already received the last real native tick. The
     // generic scene end workflow can request a session pause/report; preserve
     // the terminal battlefield instead of entering that online result workflow.
-    if(!p->terminal_tick)reinterpret_cast<void(*)(void*,float,float)>(p->base+scene_frame_va)(reinterpret_cast<void*>(scene),delta*speed,delta);
+    if(!p->terminal_tick&&!p->diagnostic_frozen)reinterpret_cast<void(*)(void*,float,float)>(p->base+scene_frame_va)(reinterpret_cast<void*>(scene),delta*speed,delta);
     // Generic frame ECC9EC separately advances the display tree at C+38.
     // Scene logic/UI alone does not advance its native graphical objects.
     auto display=read<uintptr_t>(controller+0x38);
@@ -138,6 +150,7 @@ void local_frame(void* object,float elapsed){
 void local_render(void* object,float elapsed){
     auto* p=state;auto controller=reinterpret_cast<uintptr_t>(object);
     if(!p||controller!=p->replay_controller||p->driver_error||!p->driver_bound)return;
+    if(p->lobby_requested)return;
     float delta{};
     if(cr_noop_current_tid()!=p->tid||!stable(p)||!replay_frame_clock::bounded_delta(elapsed,delta)){p->driver_error=9;return;}
     auto scene=read<uintptr_t>(controller+0x50);
@@ -201,6 +214,19 @@ bool initialize(SceneProbe* p){auto b=p->base;
     p->replay_controller=controller;p->stage=6;
     return true;
 }
+bool request_lobby(SceneProbe* p){
+    // Canonical manager request(3,0): factory3 constructs kind0/lobby.
+    // No manual controller/domain deletion or force-stop.
+    if(!stable(p)||!pins(p->base)||!p->terminal_tick||p->diagnostic_frozen||p->driver_error||p->lobby_requested)return false;
+    auto controller=read<uintptr_t>(p->manager+0x28);
+    if(controller!=p->replay_controller||read<uintptr_t>(controller)!=reinterpret_cast<uintptr_t>(p->controller_table+2)||
+       read<uintptr_t>(p->manager+0x20)||read<int>(p->manager+0x3c))return false;
+    auto domain=read<uintptr_t>(controller+0x90),battle=read<uintptr_t>(domain+0xa8);
+    if(!battle||!reinterpret_cast<int(*)(void*)>(p->base+0xf5603c)(reinterpret_cast<void*>(battle)))return false;
+    p->lobby_requested=1;
+    reinterpret_cast<void(*)(void*,int,int)>(p->base+0xed2560)(reinterpret_cast<void*>(p->manager),3,0);
+    p->stage=8;return read<int>(p->manager+0x3c)==3;
+}
 bool cleanup(SceneProbe* p){
     p->cleanup_entered++;
     if(!stable(p)||!pins(p->base)){p->failure=20;return false;}
@@ -223,17 +249,18 @@ bool cleanup(SceneProbe* p){
     web_source::active_trace=nullptr;
     p->cleanup_done=1;p->stage=7;return true;
 }
-struct Task;using Method=void(*)(Task*)noexcept;struct Task{const Method* methods;SceneProbe* p;bool clean;};
+struct Task;using Method=void(*)(Task*)noexcept;struct Task{const Method* methods;SceneProbe* p;int action;};
 void destroy(Task* t)noexcept{if(t->p)t->p->destroyed.store(1,std::memory_order_release);t->p=nullptr;}
 void remove(Task* t)noexcept{destroy(t);delete t;}
 void execute(Task* t)noexcept{auto* p=t->p;if(!p)return;p->entered=1;
     if(cr_noop_current_tid()!=p->tid||!stable(p)||!pins(p->base))p->failure=30;
-    else if(t->clean)cleanup(p);else initialize(p);
+    else if(t->action==2){if(!request_lobby(p))p->failure=31;}
+    else if(t->action==1)cleanup(p);else initialize(p);
     p->returned.store(1,std::memory_order_release);
 }
 const Method methods[]={destroy,remove,execute};
-int publish(SceneProbe* p,bool clean){
-    auto* task=new(std::nothrow)Task{methods,p,clean};if(!task)return -4;
+int publish(SceneProbe* p,int action){
+    auto* task=new(std::nothrow)Task{methods,p,action};if(!task)return -4;
     p->entered=0;p->returned=0;p->destroyed=0;
     EmptyBinding binding{reinterpret_cast<unsigned char*>(p->base+0x1d88818)};
     if(!publish_empty(&binding,reinterpret_cast<CrNoopTask*>(task))){remove(task);return -10+binding.result;}
@@ -249,6 +276,7 @@ EXPORT int cr_web_scene_start(uintptr_t b,int pid,uint64_t tid,uintptr_t handle,
     return publish(state,false);
 }
 EXPORT int cr_web_scene_cleanup(){return state&&state->destroyed?publish(state,true):0;}
+EXPORT int cr_web_scene_return_lobby(){return state&&state->destroyed&&!state->lobby_requested?publish(state,2):0;}
 EXPORT uintptr_t cr_web_scene_done_address(){return state?reinterpret_cast<uintptr_t>(&state->destroyed):0;}
 EXPORT uintptr_t cr_web_scene_result_address(){
     if(!state)return 0;auto* p=state;auto& f=p->fields;
@@ -268,6 +296,8 @@ EXPORT uintptr_t cr_web_scene_result_address(){
     }
     f[27]=p->replay_controller;f[28]=p->driver_bound;f[29]=p->driver_error;f[30]=p->driver_frames;f[31]=p->terminal_tick;
     f[32]=p->presentation_frames;f[33]=p->presentation_handle;f[34]=p->presentation;
+    f[37]=p->diagnostic_frozen;f[38]=WEB_DIAGNOSTIC_STOP_TICK;
+    f[39]=p->lobby_requested;
     if(stable(p)&&read<uintptr_t>(p->manager+0x28)==p->replay_controller&&p->replay_controller){
         f[35]=read<unsigned>(p->replay_controller+0x74);
         f[36]=read<unsigned char>(p->replay_controller+0x17c);

@@ -1,0 +1,16 @@
+{
+  "schema": "royale-replay-skill.dependencies.v1",
+  "scope": "official HTML replay desktop console, not training",
+  "source_payload": {"included": true, "python_packages": [], "runtime_uses_stdlib_only": true, "firstlight_parser_and_alias_resolver_vendored": true},
+  "python": {"minimum": "3.12", "locally_tested": "3.12.4", "distribution": "user-installed Python, private no-pip venv created by installer"},
+  "host": {"os": "macOS", "minimum_major": 14, "architecture": "arm64", "other_platforms_validated": false},
+  "apple_tools": {"required": ["xcrun", "swiftc", "/usr/bin/lldb", "codesign", "compatible macOS SDK"], "included": false, "accept_license_automatically": false},
+  "android_platform_tools": {"required": ["adb"], "locally_tested": "37.0.1-15733141", "included": false},
+  "android_ndk": {"revision": "30.0.16248370", "release": "r30", "target": "aarch64-linux-android24", "required": ["aarch64-linux-android24-clang++", "llvm-readelf", "aarch64/lldb-server"], "included": false},
+  "mumu": {"required": "one explicitly selected existing ARM64 instance with prior authorized privileged debugging access", "included": false, "start_or_restart_automatically": false},
+  "official_client": {"package": "com.tencent.tmgp.supercell.clashroyale", "audited_version_label": "38.4.2", "libg_sha256": "c6b2482a2f1fbd2e15c99df7fb18ba3d5596b77b3a81930d3638241a3c37fe55", "included": false, "apk_and_runtime_assets_imported_from_users_own_installation": true, "unknown_build_action": "stop, no native adaptation or offset guessing"},
+  "browser_bridge": {"optional": true, "source_included": true, "browsers": ["Edge", "Chrome"], "extension_id": "dbjcdkkejbaccfpnicafnkjaehkjhkjf", "registration_requires_confirmation": true},
+  "network": {"installer_downloads": false, "network_configuration_changes": false, "embedded_browser_requires_existing_https_or_socks_system_proxy": true},
+  "deployment_isolation": {"private_queue_per_deployment": true, "remote_component_paths_per_deployment": true, "operation_lock_per_selected_emulator": true, "adb_forward_no_rebind": true},
+  "replay_timing": {"scope": "all imported matches", "command_delay_ticks": 20, "command_delay_seconds": 1, "source_html_changed": false}
+}

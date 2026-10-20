@@ -1,0 +1,181 @@
+{
+  "source_files": [
+    {
+      "path": "adb_discovery.py",
+      "sha256": "dc43b1c51955f400dd89e9e08d769f292af70c5f89dbbd417f7a0415cbf863ed"
+    },
+    {
+      "path": "align_native_deal.py",
+      "sha256": "4b32f0abd69405e85802a83a1b1710d3aac9fb11b946ccd44d455236194d7c00"
+    },
+    {
+      "path": "bootstrap_input.py",
+      "sha256": "825928528d2184fd7ca9cdd786a6de226bc16a7fecacde874687db87e53a46e0"
+    },
+    {
+      "path": "bounded_memory_reader.py",
+      "sha256": "b13ba5339f365b9b85d21ebbfe4560588b990eb9f1b2990c8d2783c83d692095"
+    },
+    {
+      "path": "bridge_queue.py",
+      "sha256": "22bde517f75ab7fda60c32c97160803a80554a924b98b859be04bac6607fff45"
+    },
+    {
+      "path": "browser_capture.py",
+      "sha256": "fb78f525f161662c2b74f4c92a270fc6cb3fdb6f4a4c733ad058179cf5b1a258"
+    },
+    {
+      "path": "build_bootstrap_probe.py",
+      "sha256": "2f52cff229bc0b15dc9b5629eb93f362f8f475094d547879e55f4ac39fa5c7f9"
+    },
+    {
+      "path": "cache_lease.h",
+      "sha256": "331d6781c3da9a89fca13adf8f76844d9de1ee7af21caccd14bda748baf311d7"
+    },
+    {
+      "path": "client_session.py",
+      "sha256": "f9e2e5ff7f3c4b402a11a7aebcc01e7cf3805b45acd63438a68a92d57b827e0a"
+    },
+    {
+      "path": "compare_native_result.py",
+      "sha256": "5d2977fb46d13994072fa451d5f52dc3033e3e5656fb98f8808312c18916cab3"
+    },
+    {
+      "path": "console_backend.py",
+      "sha256": "4c58f3923d91fba8ead1b977ba37e2f3c15c6c862fc7362848ffad38f5e1ae9e"
+    },
+    {
+      "path": "deploy_bootstrap_probe.py",
+      "sha256": "abb1c932a25f221412485ab7b174b919fd1eb26708942dd09ee701a5fe5049bb"
+    },
+    {
+      "path": "desktop_worker.py",
+      "sha256": "6c1ef7d19d126d94870f06c5b90cb119cedbd3eccc969f05729498e2bf82a73e"
+    },
+    {
+      "path": "replay_queue.py",
+      "sha256": "9083e902a7c47f7324f2076fc8e90b459868e08c47b705146a97baf284a95358"
+    },
+    {
+      "path": "ability_search.py",
+      "sha256": "b576bd878c0c93424344a8c78957e37008dcd6580847ac07222e8db14ff34011"
+    },
+    {
+      "path": "failure_recovery.py",
+      "sha256": "f4c77219c1dea48335e014d1fc893ba888b07224a423d14618b1a166acd79a54"
+    },
+    {
+      "path": "saved_replay.py",
+      "sha256": "243f0102620f7a478122649546882f2c9020c76a37311daa3b038b4d34eb3ffc"
+    },
+    {
+      "path": "diagnostic_prefix.py",
+      "sha256": "4cd8302f6074422d77d7a98c8fa39d271704fd2b62de29ad9f2f0e5008841d6a"
+    },
+    {
+      "path": "desktop_diagnostic.py",
+      "sha256": "4372718c1ab01e058799ea96984b799f564a25ff5e1d4fd54781bcd9c0be4520"
+    },
+    {
+      "path": "finalize_replay.py",
+      "sha256": "dd47fbe6d16840de36e844caf92bd5debf4ea4b5b453f62ada161bed9ab5bb58"
+    },
+    {
+      "path": "import_replay.py",
+      "sha256": "3c3edf12670bbd808a24712dfe7df2c869e39bdcdead7952e1980a7af9dc7d58"
+    },
+    {
+      "path": "native_bootstrap_probe.cpp",
+      "sha256": "74ceca1344196d707a62e51b51bb8d232380b1b3d20db066af4c0af034ff6ec4"
+    },
+    {
+      "path": "native_scene_probe.cpp",
+      "sha256": "c69ae97ddec9b24d97bc52a9e6f2a8259726dcca551b03c94f1d95fe789f001f"
+    },
+    {
+      "path": "native_tower_check.h",
+      "sha256": "1908f6d6bbabea55b8eff19bfe7a81e47a2059c07c18a507c11916513b2ccb04"
+    },
+    {
+      "path": "observe_card_levels.py",
+      "sha256": "e4f46ac1db6e691fb50f55396b3f5230c76d79f0afbd61ebebe7b34e0a7a223f"
+    },
+    {
+      "path": "observe_current_client.py",
+      "sha256": "d90b789c3b0098883dcbf39650390d0866d266b249d87170d8fcf8f826f36aa0"
+    },
+    {
+      "path": "observe_tower_catalog.py",
+      "sha256": "fb7e353451509cafe2871f04a56cf3207e8c4d2a1b8bd847a2569e7a4f2996a1"
+    },
+    {
+      "path": "prepare_native_replay.py",
+      "sha256": "794ea3268739da52464738e398f85489f8f541936a39b23ad74520cdf64410c7"
+    },
+    {
+      "path": "readonly_memory_reader.cpp",
+      "sha256": "1411aeb32935b95d6e68a9fce3871dabb6c4d217600f3df0326ffac7a1fe00a3"
+    },
+    {
+      "path": "replay_content_cache.py",
+      "sha256": "3420db053905cfc88f80505f60be297d6cca5645131f873f41640cad0fd0165c"
+    },
+    {
+      "path": "replay_frame_clock.h",
+      "sha256": "dfb6f05b5aeda2b1673b730dc2b2114dafcbc9887ef34a78cbfafc1ad28f2033"
+    },
+    {
+      "path": "run_bootstrap_gate.py",
+      "sha256": "9d8200cd3249f68279d71a1945402a72967d8cecff2c3e7769ecedddaa905377"
+    },
+    {
+      "path": "run_bootstrap_probe.py",
+      "sha256": "fd9b2ccc8bc10f239fe7e0912c90f23283e13e7e79bad9b063b6b992c800615b"
+    },
+    {
+      "path": "run_scene_gate.py",
+      "sha256": "99052be0ff2790573663b1efbcffc3d30e3d910909c85650c915511b21eaf54c"
+    },
+    {
+      "path": "scene_input.py",
+      "sha256": "b0273fbe7ebd9d6b131552a7606c013c07398d798183a474c2852647127b41df"
+    },
+    {
+      "path": "scene_start_contract.py",
+      "sha256": "4f53b041c9de0e03914f09efbc280842b8014b0af0c5be4a458d7af73a036f6c"
+    },
+    {
+      "path": "source_completion.py",
+      "sha256": "9aaf1213718b4f247bb1260fd53195119a77c39e93f92b3f8c82d87678be4eef"
+    },
+    {
+      "path": "source_execution.h",
+      "sha256": "4c634f4a8724ab19246b7b99483bbf54599e16cfc95f464dd5e740ede2f2b975"
+    },
+    {
+      "path": "timing_experiment.py",
+      "sha256": "c60835843aa084a3eaadf3efc66e9208594717b3c3453fd4aeaa1532a4e9f146"
+    },
+    {
+      "path": "timing_policy.py",
+      "sha256": "47eaa4a1faa6a1255be2a653c4f62a31eae1a9ccbb4216d93d82fdb2b8deae79"
+    },
+    {
+      "path": "tower_profiles.py",
+      "sha256": "377d005b9aced7675033ce1bb4650fbdc78c6a65f33cd3c66217e14e036686b2"
+    },
+    {
+      "path": "ReplayBridge.swift",
+      "sha256": "30e049e17c552cf6db57fc2f6226c9792ad3e0c4600b99577b456eaab3cc60fc"
+    },
+    {
+      "path": "ReplayConsole.swift",
+      "sha256": "e317a657d16ea07fa9a536a9cd6277a3687af09652d62db7a471cfc59127cba7"
+    },
+    {
+      "path": "RoyaleBrowser.swift",
+      "sha256": "cb932c735074870ed844f04688681a1f7f9be26cdf32e5fab4ef30c6d4b15435"
+    }
+  ],
+  "portable_copy_only": true
+}

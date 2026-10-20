@@ -83,15 +83,21 @@ def prepare(source,level_offsets=None,tower_evidence=None):
         for cid in ordered:
             if cid not in offsets:raise ValueError('native level evidence required for card '+str(cid))
             c=by_id[cid];offset=offsets[cid];level=c['source_level']-offset
-            if not 1<=level<=15:raise ValueError('unsupported internal card level')
+            if not 0<=level<=15:raise ValueError('unsupported internal card level')
             entries.append({'d':cid,'l':level,'el':FORM_INPUT[c['form']]})
         tower=deck['tower']
-        if not tower or tower.get('level')!=16:
-            raise ValueError('当前已验证天梯配置需要明确的16级塔楼；不会猜测国王塔等级')
+        if not tower or type(tower.get('level')) is not int or not 1<=tower['level']<=16:
+            raise ValueError('需要明确且受当前客户端支持的塔楼等级（1至16级）')
+        king_level=deck.get('king_level',tower['level'])
+        if type(king_level) is not int or not 1<=king_level<=16:
+            raise ValueError('国王塔等级必须在当前客户端支持的1至16级范围内')
         if tower_evidence is None:
-            if tower!={'card_key':'tower-princess','level':16}:raise ValueError('需要当前客户端的塔楼目录校验')
-            towers[owner]=default_binding()
+            if tower['card_key']!='tower-princess':raise ValueError('需要当前客户端的塔楼目录校验')
+            towers[owner]=default_binding(tower['level'])
         else:towers[owner]=tower_request(tower,tower_evidence)
+        towers[owner].update(king_level=king_level,
+            king_level_policy='explicit-source' if 'king_level' in deck else 'user-default-match-tower-level',
+            explicit_support=tower['card_key']!='tower-princess' or king_level!=tower['level'])
         # Distinct local-only identities, not the logged-in user's identity and
         # not claimed to be the source player's real server-side identifier.
         identity={'hi':0x11223344,'lo':0x55660001+owner}
@@ -103,11 +109,11 @@ def prepare(source,level_offsets=None,tower_evidence=None):
         # Other types use their explicit official sc169 record and rarity
         # level. Never copy the web/API159 wrapper into the official parser.
         battle['deck'+str(owner)]={'hdr':'BD01','sp':entries}
-        if tower['card_key']!='tower-princess':
+        if towers[owner]['explicit_support']:
             bound=towers[owner]
             battle['deck'+str(owner)]['sc']=[{'d':bound['support_id'],'l':bound['internal_level']}]
         battle['hbd'][owner]={'em':{'oe':[],'de':[],'fav':[]},
-            'sk':{'os':[],'ss':[],'rnd':False},'bn':{'bg':0,'fg':0},'kt':16}
+            'sk':{'os':[],'ss':[],'rnd':False},'bn':{'bg':0,'fg':0},'kt':king_level}
         sides[side]={'native_owner':owner,'source_player':source_player,
                      'synthetic_native_identity':identity,'deck_order':ordered,'cycle':cycle}
         play_index=0

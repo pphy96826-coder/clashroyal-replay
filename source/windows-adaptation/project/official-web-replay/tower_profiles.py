@@ -40,9 +40,9 @@ def tower_request(tower,evidence):
                 relative_level=row['relative_level'],spawn_entries=row['spawn_entries'])
 
 
-def default_binding():
+def default_binding(level=16):
     """Keep historical, already native-verified Princess16 input compatible."""
-    return tower_request(dict(card_key='tower-princess',level=16),[dict(card_key='tower-princess',
+    return tower_request(dict(card_key='tower-princess',level=level),[dict(card_key='tower-princess',
         support_id=169000000,name='King_PrincessTowers',relative_level=0,level_count=16,
         spawn_entries=[dict(data_id=35000000 if i==0 else 35000001,
                             name='KingTower' if i==0 else 'PrincessTower',
@@ -55,12 +55,14 @@ def bindings(doc):
     if len(rows)!=2:raise ValueError('two tower bindings required')
     for row in rows:
         key=tower_key(row['card_key'])
-        if row['source_level']!=16 or row['support_id']!=TOWERS[key]['support_id']:
-            raise ValueError('tower binding must preserve the verified level16 source')
+        if type(row['source_level']) is not int or not 1<=row['source_level']<=16 or row['support_id']!=TOWERS[key]['support_id']:
+            raise ValueError('tower binding must preserve source level/type')
         relative={'tower-princess':0,'cannoneer':5,'dagger-duchess':8,'royal-chef':8}[key]
-        if row['relative_level']!=relative or row['internal_level']+relative!=15:
+        if row['relative_level']!=relative or row['internal_level']+relative!=row['source_level']-1:
             raise ValueError('tower rarity level changed')
-        tower_request(dict(card_key=key,level=16),[dict(row,name=TOWERS[key]['name'],level_count=16-relative)])
+        tower_request(dict(card_key=key,level=row['source_level']),[dict(row,name=TOWERS[key]['name'],level_count=16-relative)])
+        king=row.get('king_level',row['source_level'])
+        if type(king) is not int or not 1<=king<=16:raise ValueError('invalid king level')
     return rows
 
 
@@ -74,9 +76,41 @@ def render_towers(doc,prefix):
         for i,spawn in enumerate(row['spawn_entries']):
             x,y=spawn['grid_x']*500,spawn['grid_y']*500
             if owner==1:y=32000-y
-            hp=7728 if i==0 else TOWER_HP_16[row['card_key']]
-            items.append('{'+','.join(map(str,(spawn['data_id']&0xffffffff,x,y,15,hp)))+','+str(i==0).lower()+'}')
+            level=row.get('king_level',row['source_level']) if i==0 else row['source_level']
+            # Lower-level HP comes from the engine, not an approximate growth
+            # formula. Initialization verifies type/level/full health and binds
+            # its exact value for all subsequent simulations and the scene.
+            hp=(7728 if i==0 else TOWER_HP_16[row['card_key']]) if level==16 else 0
+            captured=doc.get('native_initial_tower_hp')
+            if captured is not None:hp=captured[owner][i]
+            items.append('{'+','.join(map(str,(spawn['data_id']&0xffffffff,x,y,level-1,hp)))+','+str(i==0).lower()+'}')
         owners.append('{'+','.join(items)+'}')
     text+=','.join(owners)+'};\n'
-    text+='static const unsigned '+prefix+'_support[2][2]={'+','.join('{'+str(r['support_id'])+','+str(r['internal_level'])+'}' for r in rows)+'};\n'
+    text+='static const unsigned '+prefix+'_support[2][3]={'+','.join('{'+str(r['support_id'])+','+str(r['internal_level'])+','+str(int(r.get('explicit_support',r['card_key']!='tower-princess')))+'}' for r in rows)+'};\n'
     return text
+
+
+def bind_initial_towers(doc,receipt):
+    """Bind full-health evidence from a clean initialization, not final HP."""
+    import copy
+    released=receipt.get('component_unloaded') or (receipt.get('observer_released') is True
+        and receipt.get('mumu_module_retained_safe') is True and receipt.get('module_retained_for_translated_return_safety') is True)
+    if not receipt.get('source_bootstrap_verified') or receipt.get('errors') or not released or not receipt.get('detached'):
+        raise ValueError('tower initialization was not safely verified')
+    rows=bindings(doc);values=receipt.get('initial_towers',[])
+    if len(values)!=6:raise ValueError('six initial native towers required')
+    hp=[[0]*3 for _ in range(2)]
+    for value in values:
+        owner=value['owner']
+        if type(owner) is not int or owner not in (0,1):raise ValueError('invalid tower owner')
+        row=rows[owner];matches=[]
+        for i,spawn in enumerate(row['spawn_entries']):
+            level=row.get('king_level',row['source_level']) if i==0 else row['source_level']
+            y=spawn['grid_y']*500;y=32000-y if owner else y
+            if (value['data_id'],value['x'],value['y'],value['level_index'],value['king'])==(spawn['data_id']&0xffffffff,spawn['grid_x']*500,y,level-1,int(i==0)):matches.append(i)
+        if len(matches)!=1:raise ValueError('initial tower identity or level differs')
+        i=matches[0];health=value['hp']
+        if hp[owner][i] or type(health) is not int or not 0<health<=50000 or health!=value['max_hp']:raise ValueError('initial tower health differs')
+        hp[owner][i]=health
+    result=copy.deepcopy(doc);result['native_initial_tower_hp']=hp
+    return result

@@ -6,11 +6,15 @@ import sys
 import threading
 import time
 import traceback
+import subprocess
+from replay_queue import ReplayQueue
 from console_backend import Cancelled, OperationLock, Player, STORE, PROJECT, owned_scene_state, scene_metadata
 from browser_capture import save_capture
 from bridge_queue import DIRECTORY as BRIDGE_DIRECTORY, pending_jobs, process_job, update_status
 from replay_lifecycle import ClientUnavailable,client_generation,clear_playback
 from pathlib import Path
+from saved_replay import selected, forget
+from failure_recovery import explanation
 
 
 class Worker:
@@ -22,6 +26,9 @@ class Worker:
         self.bridge_current = None
         self.bridge_preparing = False
         self.closed = threading.Event(); self.player = Player(self.emit)
+        self.queue = ReplayQueue(STORE)
+        self.queue_active = None
+        self.parse_lock = threading.Lock()
 
     def emit(self, kind, value):
         with self.output_lock:
@@ -31,6 +38,9 @@ class Worker:
             if kind=='downloaded':self.last_request=dict(command='play',html=value['path'],speed=1)
             if kind=='playback_ended' and self.bridge_current:
                 update_status(BRIDGE_DIRECTORY,self.bridge_current,'complete' if value.get('reason')=='complete' else 'cancelled',value['message'])
+            if kind in ('complete','error','recovered','stopped') and self.queue_active:
+                self.queue.set_state(self.queue_active, 'complete' if kind=='complete' else 'failed', message=str(value))
+                self.queue_active=None
             if self.bridge_current and ((kind == 'status' and self.bridge_preparing) or
                                         (kind in ('complete', 'stopped') and not self.bridge_preparing)):
                 state = 'preparing' if kind == 'status' else 'complete' if kind == 'complete' else 'cancelled'
@@ -58,7 +68,14 @@ class Worker:
             except ClientUnavailable:
                 self.stop_requested.clear();clear_playback(self,'closed')
             except Exception as exc:
-                self.emit('log', traceback.format_exc()); self.emit('error', str(exc))
+                self.emit('log', traceback.format_exc())
+                try:
+                    recovered = self.player.recover_failed(exc)
+                except Exception as recovery_error:
+                    recovered = False
+                    self.emit('log', '自动恢复未通过归属检查：'+str(recovery_error))
+                if recovered: self.playback = None
+                else: self.emit('error', str(exc)+'\n'+explanation(exc))
             finally:
                 # A Stop received during adoption or the last native step must
                 # not disappear merely because that step returned normally.
@@ -89,24 +106,53 @@ class Worker:
                 self.emit('match', doc); self.emit('resumed', metadata)
                 self.emit('position', dict(state, duration=metadata['duration']))
                 if state['tick']/20 >= metadata['duration']:
-                    self.finish(metadata)
+                    if metadata.get('diagnostic_only'):
+                        self.emit('status','诊断预览已到分歧点暂停，不是完整回放。可检查画面或安全停止。')
+                    else:self.finish(metadata)
             except (ValueError, OSError, KeyError) as exc:
                 self.emit('log', '已有回放仍保留；未恢复输入信息：' + str(exc))
 
     def finish(self,current):
         """Called under OperationLock; reset only the proven owned client."""
-        self.emit('complete',current);self.playback=None
-        self.bridge_current=None
         self.player.cancel.clear()
         try:
-            self.player.stop_owned()
-            self.emit('playback_ended',dict(reason='complete',can_replay=bool(self.last_request),client_refreshed=True,
-                message='回放已完成，客户端已刷新。请选择重新回放或退出回放。'))
+            outcome=self.player.finish_owned() or {}
+            self.emit('complete',current);self.playback=None
+            self.bridge_current=None
+            self.emit('queue',self.queue.snapshot())
+            self.emit('playback_ended',dict(reason='complete',can_replay=bool(self.last_request),client_refreshed=True,returned_lobby=outcome.get('lobby_verified',False),
+                message='回放已完成，客户端已自动重新打开；当前使用安全重启兜底。可等待大厅后播放下一场。'))
         except ClientUnavailable:clear_playback(self,'closed')
 
     def command(self, doc):
         kind = doc.get('command')
-        if kind in ('capture-play', 'capture-save'):
+        if kind == 'queue-add':
+            paths=doc.get('htmls')
+            if not isinstance(paths,list) or not 1<=len(paths)<=128 or any(not isinstance(p,str) for p in paths):
+                raise ValueError('请选择1至128个HTML')
+            def enqueue():
+                for path in paths:
+                    try:self.queue.add(path)
+                    except Exception as error:self.emit('log','入队失败：'+str(error))
+                self.emit('queue',self.queue.snapshot())
+                self.parse_queued()
+            threading.Thread(target=enqueue,daemon=True).start()
+        elif kind == 'queue-next':
+            if self.busy or self.playback:raise ValueError('请先等当前回放完成；不会覆盖正在播放的战斗')
+            item=self.queue.next_ready()
+            if item is None:raise ValueError('下一场尚未解析完成或队列为空')
+            speed=doc.get('speed',1)
+            if speed not in (.25,.5,1,2,4):raise ValueError('播放倍速不正确')
+            def next_replay():
+                path=self.queue.source(item['id'])
+                self.queue.set_state(item['id'],'playing');self.queue_active=item['id']
+                self.player.cancel.clear()
+                evidence=self.queue.diagnostic(item['id'])
+                if evidence:self.player.play_diagnostic(str(path),evidence,speed)
+                else:self.player.play(str(path),speed)
+                self.emit('queue',self.queue.snapshot())
+            self.launch(next_replay)
+        elif kind in ('capture-play', 'capture-save'):
             html, url, speed = doc.get('html'), doc.get('url'), doc.get('speed', 1)
             if not isinstance(html, str) or not isinstance(url, str) or speed not in (.25, .5, 1, 2, 4):
                 raise ValueError('网页数据或倍速不正确')
@@ -119,17 +165,28 @@ class Worker:
                 result = save_capture(html, url, project=PROJECT, directory=STORE/'web-html')
                 self.emit('downloaded', result)
                 if kind == 'capture-play':
-                    self.playback = None
-                    self.player.play(result['path'], speed)
+                    if self.playback:
+                        self.queue.add(result['path']);self.emit('queue',self.queue.snapshot())
+                        self.emit('status','网页回放已入队，尚未播放；当前战斗保持不变。')
+                        threading.Thread(target=self.parse_queued,daemon=True).start()
+                    else:self.player.play(result['path'], speed)
                 else: self.emit('status', 'HTML 已保存，可在控制台点击播放。')
             self.launch(capture)
-        elif kind in ('play','replay'):
+        elif kind in ('play','replay','replay-saved'):
             if kind=='replay':
                 if not self.last_request:raise ValueError('没有可重新播放的回放，请先选择文件。')
                 doc=dict(self.last_request)
+            if kind == 'replay-saved':
+                saved = selected(STORE, doc.get('source_sha256'))
+                if saved is None: raise ValueError('没有已保存回放')
+                doc = dict(doc, html=saved['path'])
             html, speed = doc.get('html'), doc.get('speed', 1)
             if not isinstance(html, str) or speed not in (.25, .5, 1, 2, 4):
                 raise ValueError('文件或倍速不正确')
+            if self.busy or self.playback:
+                self.command(dict(command='queue-add',htmls=[html]))
+                self.emit('status','新HTML已请求入队，尚未播放；不会覆盖当前战斗。')
+                return
             if self.busy:
                 self.emit('error', '当前步骤仍在进行，请等待或取消。'); return
             self.player.cancel.clear()
@@ -137,6 +194,13 @@ class Worker:
             self.bridge_current = None
             self.playback = None
             self.launch(lambda: self.player.play(html, speed))
+        elif kind == 'remove-saved':
+            def remove():
+                if not isinstance(doc.get('source_sha256'), str): raise ValueError('需要确认保存的回放')
+                forget(STORE, doc['source_sha256'])
+                self.emit('saved', None)
+                self.emit('status', '已移除保存选择；原 HTML、缓存和诊断记录仍保留。')
+            self.launch(remove)
         elif kind in ('stop','exit'):
             if kind=='exit':self.last_request=None
             with self.state_lock:
@@ -169,10 +233,35 @@ class Worker:
             if self.playback is current:
                 self.emit('position',dict(state,duration=current['duration']))
                 if state['tick']/20>=current['duration']:
+                    if current.get('diagnostic_only'):
+                        if not current.get('preview_paused'):
+                            current['preview_paused']=True
+                            self.emit('status','诊断预览已到分歧点暂停，不是完整回放。可检查画面或安全停止。')
+                        return
                     self.launch(lambda:self.finish(current))
         except Exception as exc:
             if self.busy:return
             self.emit('log','回放状态已结束：'+str(exc));clear_playback(self,'unavailable')
+
+    def parse_queued(self):
+        # Separate pure parser, no native lock, debugger, ADB or simulation.
+        with self.parse_lock:
+            for row in self.queue.snapshot():
+                if self.closed.is_set():return
+                if row['state']!='queued':continue
+                self.queue.set_state(row['id'],'parsing')
+                self.emit('queue',self.queue.snapshot())
+                try:
+                    path=self.queue.source(row['id'])
+                    output=path.with_suffix('.json')
+                    subprocess.run([sys.executable,'-u',str(__import__('pathlib').Path(__file__).with_name('import_replay.py')),
+                        str(path),'--project-root',str(PROJECT),'--output',str(output)],
+                        check=True,timeout=60,capture_output=True)
+                    parsed=json.loads(output.read_text(encoding='utf-8'))
+                    if parsed['source_sha256']!=row['sha256']:raise ValueError('解析源哈希不符')
+                    self.queue.set_state(row['id'],'ready',replay_tag=parsed['replay_tag'],count=parsed['retained_action_count'])
+                except Exception as error:self.queue.set_state(row['id'],'failed',message=str(error))
+                self.emit('queue',self.queue.snapshot())
 
     def monitor(self):
         while not self.closed.wait(1):self.poll_playback()
@@ -184,10 +273,15 @@ class Worker:
             if not jobs: continue
             path = jobs[0]
             def action(path=path):
-                self.bridge_current = path.stem
+                queue_only=bool(self.playback)
+                if not queue_only:self.bridge_current = path.stem
                 self.bridge_preparing = True
                 self.player.cancel.clear()
-                try: process_job(self.player, path, self.emit)
+                try:
+                    process_job(self.player,path,self.emit,enqueue=self.queue.add if queue_only else None)
+                    if queue_only:
+                        self.emit('queue',self.queue.snapshot())
+                        threading.Thread(target=self.parse_queued,daemon=True).start()
                 finally: self.bridge_preparing = False
             self.launch(action)
 
@@ -200,6 +294,10 @@ def main():
     except BlockingIOError:
         print(json.dumps({'event': 'fatal', 'value': '回放控制台已打开，请使用现有窗口。'}, ensure_ascii=False), flush=True); return
     worker = Worker(); worker.emit('ready', '就绪 · 请选择已保存的 RoyaleAPI 回放 HTML')
+    try: worker.emit('saved', selected(STORE))
+    except (ValueError, KeyError, OSError) as error: worker.emit('log', str(error))
+    worker.emit('queue',worker.queue.snapshot())
+    threading.Thread(target=worker.parse_queued,daemon=True).start()
     worker.launch(worker.adopt)
     threading.Thread(target=worker.monitor, daemon=True).start()
     threading.Thread(target=worker.bridge_monitor, daemon=True).start()

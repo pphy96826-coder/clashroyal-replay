@@ -10,6 +10,17 @@ def render_scene(preparation,replay,playback_speed=1):
     render(preparation,True,replay)  # Same strict source/identity/card/tick guards.
     payload=json.dumps(replay,ensure_ascii=True,separators=(',',':'))
     text='static const char scene_json[]='+json.dumps(payload)+';\n'
+    preview=preparation.get('diagnostic_preview')
+    stop=0
+    if preview:
+        stop=preview.get('stop_tick')
+        if (preview.get('diagnostic_only') is not True or preview.get('complete_replay_verified') is not False
+                or preview.get('preview_event_count')!=len(preparation['events'])
+                or len(preview.get('original_source_events',[]))!=preview.get('original_source_event_count')
+                or preview['original_source_events'][:len(preparation['events'])]!=preparation['events']
+                or type(stop) is not int or not preparation['events'][-1]['source_tick_20hz']<stop<preparation['initialization_only']['endTick']):
+            raise ValueError('invalid explicitly incomplete diagnostic preview')
+    text+='#define WEB_DIAGNOSTIC_STOP_TICK '+str(stop)+'\n'
     text+=render_towers(preparation,'scene')
     text+='static constexpr float scene_initial_speed='+str(float(playback_speed))+'f;\n'
     owners={p['native_owner']:p['synthetic_native_identity'] for p in preparation['participants'].values()}

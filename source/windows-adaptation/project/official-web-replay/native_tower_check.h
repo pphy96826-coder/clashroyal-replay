@@ -3,13 +3,13 @@
 // definition or mutate the shared catalog to make a source appear supported.
 template<class Tower,class Readable>
 bool native_towers_match(uintptr_t base,uintptr_t domain,uintptr_t battle,
-                         const Tower (&expected)[2][3],const unsigned (&support)[2][2],
+                         const Tower (&expected)[2][3],const unsigned (&support)[2][3],
                          Readable within,uint64_t* evidence=nullptr){
     for(unsigned side=0;side<2;++side){
         auto deck=read<uintptr_t>(battle+0x88+side*8);
         if(!within(deck,0x58))return false;
         int n=read<int>(deck+0x4c);
-        if(support[side][0]==169000000){if(n!=0)return false;}
+        if(!support[side][2]){if(n!=0)return false;}
         else{
             auto array=read<uintptr_t>(deck+0x40);
             if(n!=1||!within(array,8))return false;
@@ -49,7 +49,7 @@ bool native_towers_match(uintptr_t base,uintptr_t domain,uintptr_t battle,
         if(hp<=0||hp>50000||hp!=maximum)return false;
         // Type-specific HP from the real native initialization matrix. This
         // is an assertion only, never a write into native health components.
-        if(hp!=expected[owner][match%3].hp)return false;
+        if(expected[owner][match%3].hp>0&&hp!=expected[owner][match%3].hp)return false;
         if(evidence){auto out=evidence+match*8;out[0]=owner;out[1]=id;out[2]=x;out[3]=y;
             out[4]=hp;out[5]=maximum;out[6]=read<int>(object+0x120);out[7]=expected[owner][match%3].king;}
     }
