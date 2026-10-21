@@ -1,0 +1,94 @@
+[
+  {
+    "repository": "Zenithatic/ranked-crl-bot",
+    "blob_sha": "c549cf4de72e26635bce59cff5268301bdcc5fde",
+    "rows": 2,
+    "one_survivor_examples": [
+      {
+        "crowns": 0,
+        "princessTowersHitPoints": [
+          1982
+        ]
+      }
+    ],
+    "two_alive_order_examples": [
+      {
+        "crowns": 1,
+        "princessTowersHitPoints": [
+          2997,
+          2889
+        ]
+      }
+    ]
+  },
+  {
+    "repository": "raisserv2/clash_royale_battle_analysis",
+    "blob_sha": "263c2abc5d10010020c68c71245c4dccd9d33846",
+    "rows": 1,
+    "one_survivor_examples": [],
+    "two_alive_order_examples": [
+      {
+        "crowns": null,
+        "princessTowersHitPoints": [
+          3052,
+          1454
+        ]
+      }
+    ]
+  },
+  {
+    "repository": "kamaal111/clash-royale-stats-api-server-express",
+    "blob_sha": "5bec73fd8b07ff43f478cbbc0f1aad6a6643578c",
+    "rows": 27,
+    "one_survivor_examples": [
+      {
+        "crowns": 2,
+        "princessTowersHitPoints": [
+          2418
+        ]
+      },
+      {
+        "crowns": 3,
+        "princessTowersHitPoints": [
+          1778
+        ]
+      },
+      {
+        "crowns": 0,
+        "princessTowersHitPoints": [
+          2541
+        ]
+      }
+    ],
+    "two_alive_order_examples": [
+      {
+        "crowns": 1,
+        "princessTowersHitPoints": [
+          3,
+          549
+        ]
+      },
+      {
+        "crowns": 1,
+        "princessTowersHitPoints": [
+          3346,
+          2670
+        ]
+      },
+      {
+        "crowns": 3,
+        "princessTowersHitPoints": [
+          3346,
+          601
+        ]
+      },
+      {
+        "crowns": 3,
+        "princessTowersHitPoints": [
+          2659,
+          1918
+        ]
+      }
+    ]
+  }
+]

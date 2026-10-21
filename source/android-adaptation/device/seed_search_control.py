@@ -3,6 +3,26 @@ import json
 
 class BestRequested(Exception):pass
 
+def search_reasons(preparation,source):
+    """Only actual Hunter plays or an identifiable Skeleton King ability.
+
+    Deck membership alone is insufficient. Generic ability markers with
+    multiple deployed ability-capable cards cannot identify a Skeleton King.
+    """
+    hunter,skeleton_king=26000044,26000069
+    champions={26000065,26000069,26000072,26000074,26000077,26000093,26000099,26000103}
+    capable={deck['source_side']:champions|{card['base_data_id'] for card in deck['cards'] if card.get('form')=='hero'} for deck in source['decks']}
+    played={};reasons=[]
+    for event in sorted(preparation['events'],key=lambda row:row['source_tick_20hz']):
+        side=event['source_side'];card=event.get('base_data_id')
+        if event['kind']=='play_card':
+            if card==hunter and 'hunter_played' not in reasons:reasons.append('hunter_played')
+            if card in capable.get(side,champions):played.setdefault(side,set()).add(card)
+        elif event['kind']=='activate_ability' and played.get(side)=={skeleton_king}:
+            if 'skeleton_king_ability' not in reasons:reasons.append('skeleton_king_ability')
+    return reasons
+
+
 def requested(path,source_sha256,identity):
     try:
         if path.stat().st_size>4096:return False

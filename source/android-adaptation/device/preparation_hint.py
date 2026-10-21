@@ -8,7 +8,7 @@ from pathlib import Path
 
 SCHEMA='royale-replay.preparation-hint.v1'
 EPHEMERAL={'native_tower_evidence_sha256','native_level_evidence_sha256','source_manifest_sha256'}
-ALGORITHMS=('align_native_deal.py','prepare_native_replay.py','device_import.py','device_playback.py','mumu_compile.py','native-code-contract.json')
+ALGORITHMS=('align_native_deal.py','prepare_native_replay.py','device_import.py','device_playback.py','mumu_compile.py','tower_profiles.py','ability_search.py','seed_search_control.py','native-code-contract.json')
 
 
 def key_for(initial):

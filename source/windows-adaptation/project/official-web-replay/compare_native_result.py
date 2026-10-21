@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from bootstrap_input import render
-from tower_profiles import bindings
+from tower_profiles import oracle_tower_pairs
 
 
 def compare(source, preparation, replay, execution, snapshot):
@@ -37,22 +37,12 @@ def compare(source, preparation, replay, execution, snapshot):
         oracle = deck.get('oracle_final_hp')
         if not oracle or any(type(oracle.get(k)) is not int for k in ('king', 'princess0', 'princess1')):
             raise ValueError('source final tower HP missing')
-        spawn=bindings(preparation)[owner]['spawn_entries']
-        for kind,entry in zip(('king','princess0','princess1'),spawn):
-            data_id,x=entry['data_id']&0xffffffff,entry['grid_x']*500
-            candidates = [t for t in snapshot['active_towers']
-                          if (t['owner'], t['data_id'], t['x']) == (owner, data_id, x)]
-            if len(candidates) > 1:
-                raise ValueError('ambiguous native tower')
-            row = dict(side=side, native_owner=owner, tower=kind, native_x=x,
-                       source_hp=oracle[kind], native_hp=None, delta=None, match=None)
-            if candidates:
-                row.update(native_hp=candidates[0]['hp'], delta=candidates[0]['hp'] - oracle[kind],
-                           match=candidates[0]['hp'] == oracle[kind])
-            else:
-                missing.append(dict(side=side, tower=kind,
-                                    reason='absent from active graph; destruction needs separate evidence'))
-            rows.append(row)
+        pairs=oracle_tower_pairs(deck,preparation,dict(towers=snapshot['active_towers'],destroyed_towers=snapshot.get('destroyed_towers',[])))
+        if pairs is None:missing.append(dict(side=side,reason='incomplete or ambiguous native tower evidence'));continue
+        for kind,expected_hp,native_hp in pairs:
+            rows.append(dict(side=side,native_owner=owner,tower=kind,native_x=None,
+                source_hp=expected_hp,native_hp=native_hp,delta=native_hp-expected_hp,match=native_hp==expected_hp,
+                comparison_basis='per-owner-king-and-ordered-survivors-v1',destroyed_princess_side_verified=False))
     mismatches = [r for r in rows if r['match'] is False]
     return dict(replay_tag=source['replay_tag'], source_sha256=source['source_sha256'],
                 native_terminal_tick=execution['scene_state']['tick'],

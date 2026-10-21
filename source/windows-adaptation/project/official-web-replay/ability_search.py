@@ -4,22 +4,10 @@ from source_completion import source_completed,source_failure
 
 
 def terminal_hp_matches(source, preparation, report):
-    from tower_profiles import bindings
-    towers = (report.get('battle_state') or {}).get('towers', [])
-    destroyed = [t for t in (report.get('battle_state') or {}).get('destroyed_towers', [])
-                 if t.get('native_destructor_observed') is True and t.get('health_at_destruction',1)<=0 and t.get('hp')==0]
+    from tower_profiles import oracle_tower_pairs
     for deck in source['decks']:
-        owner = deck['proposed_native_owner']
-        oracle = deck.get('oracle_final_hp') or {}
-        for key, entry in zip(('king', 'princess0', 'princess1'), bindings(preparation)[owner]['spawn_entries']):
-            if type(oracle.get(key)) is not int: return False
-            found = [t for t in towers if (t['owner'], t['data_id'], t['x']) ==
-                     (owner, entry['data_id'] & 0xffffffff, entry['grid_x']*500)]
-            if not found:
-                found = [t for t in destroyed if (t['owner'], t['data_id'], t['x']) ==
-                         (owner, entry['data_id'] & 0xffffffff, entry['grid_x']*500)]
-            # Absence is unknown, not guessed zero or a fabricated match.
-            if len(found) != 1 or found[0]['hp'] != oracle[key]: return False
+        pairs=oracle_tower_pairs(deck,preparation,report.get('battle_state') or {})
+        if pairs is None or any(expected!=actual for _,expected,actual in pairs):return False
     return True
 
 

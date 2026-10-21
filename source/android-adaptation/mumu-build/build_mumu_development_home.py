@@ -10,6 +10,8 @@ files['app/mapped_elf.py']=(root/'work/android-mumu-adaptation/source/windows-ad
 files['app/device_metadata.py']=(device/'device_metadata.py').read_bytes()
 files['app/preparation_hint.py']=(device/'preparation_hint.py').read_bytes()
 files['app/seed_search_control.py']=(device/'seed_search_control.py').read_bytes()
+for name in ('tower_profiles.py','ability_search.py','compare_native_result.py'):
+ files['app/'+name]=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay'/name).read_bytes()
 files['app/native_runtime_check.py']=(device/'native_runtime_check.py').read_bytes()
 files['app/mumu_elf.py']=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay/elf_contract.py').read_bytes()
 stubs={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (out/'arm-stubs').glob('*.so')}

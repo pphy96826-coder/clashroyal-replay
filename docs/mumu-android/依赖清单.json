@@ -1,7 +1,7 @@
 {
   "schema": "mumu-replay.runtime-dependencies.v1",
-  "apk_sha256": "70e87ba0c0df247d2bbb3f88fdd928f2d0a3469de78088ede290eff8b588377b",
-  "apk_version": "2026.10.21-mumu-dev21",
+  "apk_sha256": "44f6ea439e2ada3c897a8dfce16d632a0c469272008dd5ff05e44423e47dfb7d",
+  "apk_version": "2026.10.21-mumu-dev24",
   "members": {
     "assets/synthetic.html": {
       "bytes": 517,
@@ -16,12 +16,12 @@
       "sha256": "976c4f8bbba18f7a2c0a683e28d8d52939afba96cf2a23c9e704818eb97cbadf"
     },
     "assets/python-runtime.zip": {
-      "bytes": 106521467,
-      "sha256": "cee486c3a106a68a58a4d90e4a5ca1b0abaabc3de302691106e9d0b33013c55e"
+      "bytes": 106524486,
+      "sha256": "9e0dc0aacd85398f902605faf3a540112e8ccb340933ca6e43820f7040a1c2c8"
     },
     "assets/python-runtime.sha256": {
       "bytes": 64,
-      "sha256": "6ce2bfa4a6e241a43693b1c17fc2fae292ef66a1ee8383d547db1ccb30718aea"
+      "sha256": "51248bb671a5bf3192d1b5562ad404962cf8ee099ad09ff67252ce060f3c5f50"
     },
     "lib/arm64-v8a/libcrypto_python.so": {
       "bytes": 4544368,

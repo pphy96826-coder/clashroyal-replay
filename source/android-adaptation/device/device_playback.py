@@ -30,14 +30,14 @@ from align_native_deal import align,calibrate,deck_fingerprint
 from finalize_replay import finalize
 from proc_maps import MapsSnapshotError,diagnostics as maps_diagnostics
 from mumu_platform import enabled as mumu_enabled,system_env,host_binary
-from seed_search_control import BestRequested,requested as best_requested,choose_trials
+from seed_search_control import BestRequested,requested as best_requested,choose_trials,search_reasons
 
 
 PREPARE_AHEAD_SECONDS=7200
 # The page carries no battle random seed. Some abilities (e.g. Skeleton King's
 # summon) consume the engine RNG, so a fixed seed can end differently from the
-# page. When the final tower HP differs, a bounded list of other seeds is tried;
-# a seed is accepted only if the whole battle runs and every tower matches.
+# page. Only an actual Hunter play or identifiable Skeleton King ability
+# enables retries when final tower HP differs. Every candidate must fully run.
 SEED_ATTEMPTS=60
 PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different')
 
@@ -45,30 +45,21 @@ PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different')
 def page_comparison(source, preparation, report):
     """Compare a fully executed run with the page's final towers.
 
-    Returns (tier, hp_difference): exact; same destroyed towers (so same crowns
-    and winner); same winner only; or different. A destroyed tower counts as 0.
+    Compare each king and source-ordered surviving princess HP, never totals.
+    A compacted one-element HP list cannot establish which tower was destroyed.
     """
-    from tower_profiles import bindings
+    from tower_profiles import oracle_tower_pairs
     state=report.get('battle_state') or {}
-    alive=state.get('towers',[])
-    destroyed=[t for t in state.get('destroyed_towers',[]) if t.get('native_destructor_observed') is True and t.get('hp')==0]
     crowns={};page_crowns={};difference=0;same_towers=True;exact=True
     for deck in source['decks']:
-        owner=deck['proposed_native_owner'];oracle=deck.get('oracle_final_hp') or {}
-        for key,entry in zip(('king','princess0','princess1'),bindings(preparation)[owner]['spawn_entries']):
-            if type(oracle.get(key)) is not int:return 'different',None
-            spot=(owner,entry['data_id']&0xffffffff,entry['grid_x']*500)
-            found=[t for t in alive if (t['owner'],t['data_id'],t['x'])==spot]
-            gone=[t for t in destroyed if (t['owner'],t['data_id'],t['x'])==spot]
-            king_fell=any(t['owner']==owner and t['data_id']==35000000 and t['hp']==0 for t in alive+destroyed)
-            if len(found)==1:hp=found[0]['hp']
-            elif gone or (key!='king' and king_fell):hp=0  # A fallen king takes its princess towers with it.
-            else:return 'different',None  # Absent without destruction evidence: unknown, never guessed.
-            difference+=abs(hp-oracle[key]);exact=exact and hp==oracle[key]
-            same_towers=same_towers and (hp==0)==(oracle[key]==0)
+        owner=deck['proposed_native_owner'];pairs=oracle_tower_pairs(deck,preparation,state)
+        if pairs is None:return 'different',None
+        for key,expected_hp,hp in pairs:
+            difference+=abs(hp-expected_hp);exact=exact and hp==expected_hp
+            same_towers=same_towers and (hp==0)==(expected_hp==0)
             loser=1-owner
             crowns[loser]=crowns.get(loser,0)+(3 if key=='king' and hp==0 else (1 if hp==0 and key!='king' else 0))
-            page_crowns[loser]=page_crowns.get(loser,0)+(3 if key=='king' and oracle[key]==0 else (1 if oracle[key]==0 and key!='king' else 0))
+            page_crowns[loser]=page_crowns.get(loser,0)+(3 if key=='king' and expected_hp==0 else (1 if expected_hp==0 and key!='king' else 0))
     def winner(c):a,b=min(c.get(0,0),3),min(c.get(1,0),3);return 0 if a>b else 1 if b>a else None
     if exact:return 'exact',0
     if same_towers:return 'same_towers',difference
@@ -711,17 +702,22 @@ def run(request_path,destination,prefix):
             # Always compare the simulated end with the page (the search only does so for ambiguous abilities).
             tier,difference=page_comparison(read(source),aligned,execution)
             initial_seed=aligned['initialization_only']['rndSeed'];original_seed=source_seed
-            seed_report=dict(original_seed=original_seed,original_tier=tier if initial_seed==original_seed else None,
+            reasons=search_reasons(aligned,read(source))
+            side_known=all(all(d['oracle_final_hp'][key]>0 for key in ('princess0','princess1')) for d in read(source)['decks'])
+            context.update(seed_search_eligible=bool(reasons),seed_search_reasons=reasons,
+                tower_comparison_basis='per-owner-king-and-ordered-survivors-v1',destroyed_princess_side_verified=side_known)
+            seed_report=dict(search_policy='hunter-play-or-skeleton-king-ability-v1',eligible=bool(reasons),trigger_reasons=reasons,
+                original_seed=original_seed,original_tier=tier if initial_seed==original_seed else None,
                 original_difference=difference if initial_seed==original_seed else None,initial_seed=initial_seed,
                 preparation_hint_used=hint_detail['used'],attempts=[],selected_seed=initial_seed)
             def rank(tier,difference):return (PAGE_MATCH_TIERS.index(tier),difference if difference is not None else 1<<30)
             best=(rank(tier,difference),initial_seed,tier,difference,(aligned,execution,search_result,dict(selected_candidate)))
-            if tier!='exact':
+            if tier!='exact' and reasons:
                 context.update(seed_search_active=True,best_source_execution_verified=True,best_page_match=tier,best_page_hp_difference=difference)
                 def progress(number,seed,current_best):
                     if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed search')
                     context.update(seed_trial_number=number+1,seed_attempts=number,best_page_match=current_best[2],best_page_hp_difference=current_best[3])
-                    label={'exact':'终局完全一致','same_towers':'被摧毁的塔一致','same_winner':'胜负一致','different':'终局仍不一致'}[current_best[2]]
+                    label={'exact':'战报塔血一致','same_towers':'各方毁塔数量一致','same_winner':'胜负一致','different':'终局仍不一致'}[current_best[2]]
                     status('simulating','尝试随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'，当前最优：'+label+'。可停止匹配并播放当前最优对局。')
                 def evaluate_seed(seed,number):
                     nonlocal prep,attempt_prefix
@@ -748,6 +744,8 @@ def run(request_path,destination,prefix):
                 seed_report.update(attempts=attempts,stopped_by_user=stopped)
                 context['seed_search_stopped_by_user']=stopped
             context['seed_search_active']=False
+            if tier=='exact':seed_report['skipped_reason']='initial_result_exact'
+            elif not reasons:seed_report['skipped_reason']='no_hunter_play_or_identified_skeleton_king_ability'
             _,selected_seed,tier,difference,(aligned,execution,search_result,chosen)=best
             selected_candidate.clear();selected_candidate.update(chosen)
             seed_report.update(selected_seed=selected_seed,selected_tier=tier,selected_difference=difference)
@@ -781,11 +779,11 @@ def run(request_path,destination,prefix):
         while True:
             cancellation();ReadOnlySession(identity).verify()
             if diagnostic is not None:ready_message='诊断前缀证据已核验；等待打开游戏，未通过整局校验。'
-            elif context.get('page_match')=='same_towers':ready_message='胜负和被摧毁的塔与网页一致，塔血合计相差 '+str(context.get('page_hp_difference'))+'（随机技能的原种子未知，已在 '+str(context.get('seed_attempts',0))+' 个种子中选最接近的）；等待打开游戏，此时尚未开播。'
-            elif context.get('page_match')=='same_winner':ready_message='胜负与网页一致，但被摧毁的塔不同（已试 '+str(context.get('seed_attempts',0))+' 个随机种子，选最接近的）；仍可播放，过程与原局不同。'
+            elif context.get('page_match')=='same_towers':ready_message='胜负和各方毁塔数量与网页一致，逐塔血差合计 '+str(context.get('page_hp_difference'))+'；已试 '+str(context.get('seed_attempts',0))+' 个随机种子。不符合搜索条件的对局直接跳过搜索。'
+            elif context.get('page_match')=='same_winner':ready_message='胜负与网页一致，但各方毁塔数量不同（已试 '+str(context.get('seed_attempts',0))+' 个随机种子）；仍可播放，过程与原局不同。'
             elif not context.get('final_hp_matched'):ready_message='全部指令已执行，但终局与网页不符（已另试 '+str(context.get('seed_attempts',0))+' 个随机种子）；仍可播放，过程可能与原局不同。'
-            elif context.get('random_seed_inferred'):ready_message='整局核验通过：换用随机种子后终局塔血与网页完全一致（原种子未知，过程为推断）；等待打开游戏，此时尚未开播。'
-            else:ready_message='整局计算、全部指令和终局塔血均与网页一致；等待悬浮进度卡就绪并打开游戏，此时尚未开播。'
+            elif context.get('random_seed_inferred'):ready_message='换用随机种子后战报塔血一致；原种子未知，毁塔侧未核定，过程为推断。等待打开游戏。'
+            else:ready_message='全部指令及 JSON 核验通过，双方国王塔和剩余公主塔血量与战报一致；毁塔侧未核定。等待悬浮进度卡就绪并打开游戏。'
             status('ready_to_open',ready_message)
             signal=destination/'foreground-request.json'
             if signal.is_file():

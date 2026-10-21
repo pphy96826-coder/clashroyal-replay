@@ -34,4 +34,24 @@ class SeedControlTests(unittest.TestCase):
    path=Path(folder)/'signal.json'
    for text in ('broken','null','['+' '*5000+']'):
     path.write_text(text);self.assertFalse(control.requested(path,'a'*64,{'pid':123,'process_start_time':'42'}))
+
+class SeedEligibilityTests(unittest.TestCase):
+ def reasons(self,events,cards=()):
+  source={'decks':[{'source_side':s,'cards':[{'base_data_id':c,'form':f} for c,f in cards]} for s in ('team','opponent')]}
+  return control.search_reasons({'events':events},source)
+ def play(self,card,side='team',tick=1):return {'kind':'play_card','base_data_id':card,'source_side':side,'source_tick_20hz':tick}
+ def ability(self,side='team',tick=2):return {'kind':'activate_ability','source_side':side,'source_tick_20hz':tick}
+ def test_hunter_in_deck_without_play_does_not_trigger(self):self.assertEqual(self.reasons([],[ (26000044,'basic') ]),[])
+ def test_hunter_actually_played_either_side_triggers(self):
+  for side in ('team','opponent'):self.assertEqual(self.reasons([self.play(26000044,side)]),['hunter_played'])
+ def test_skeleton_king_deployed_without_skill_does_not_trigger(self):self.assertEqual(self.reasons([self.play(26000069)]),[])
+ def test_skeleton_king_skill_same_side_after_deployment_triggers(self):self.assertEqual(self.reasons([self.play(26000069),self.ability()]),['skeleton_king_ability'])
+ def test_opponent_skill_cannot_be_assigned_to_skeleton_king(self):self.assertEqual(self.reasons([self.play(26000069),self.ability('opponent')]),[])
+ def test_skill_before_skeleton_king_deployment_does_not_trigger(self):self.assertEqual(self.reasons([self.ability(tick=1),self.play(26000069,tick=2)]),[])
+ def test_other_champion_skills_do_not_trigger(self):self.assertEqual(self.reasons([self.play(26000099),self.ability()]),[])
+ def test_ambiguous_multiple_deployed_champions_do_not_invent_skeleton_skill(self):self.assertEqual(self.reasons([self.play(26000069),self.play(26000099),self.ability()]),[])
+ def test_other_hero_form_also_prevents_ambiguous_skill_attribution(self):self.assertEqual(self.reasons([self.play(26000069),self.play(26000000),self.ability()],[(26000000,'hero')]),[])
+ def test_both_reasons_are_unique_and_source_sorted(self):
+  events=[self.ability(tick=4),self.play(26000044,tick=3),self.play(26000069,tick=2),self.play(26000044,tick=1)]
+  self.assertEqual(self.reasons(events),['hunter_played','skeleton_king_ability'])
 if __name__=='__main__':unittest.main()

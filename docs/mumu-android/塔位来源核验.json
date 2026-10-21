@@ -1,0 +1,160 @@
+[
+  {
+    "source_sha256": "ecdd4c03b90b2088230e6bf186e5244b288719441825dd87d42fdaf20e083fac",
+    "orientation": 0,
+    "decks": [
+      {
+        "source_side": "team",
+        "proposed_native_owner": 1,
+        "oracle_final_hp": {
+          "king": 7025,
+          "princess0": 4155,
+          "princess1": 1127,
+          "total": 12307
+        }
+      },
+      {
+        "source_side": "opponent",
+        "proposed_native_owner": 0,
+        "oracle_final_hp": {
+          "king": 7025,
+          "princess0": 4155,
+          "princess1": 0,
+          "total": 11180
+        }
+      }
+    ],
+    "native": [
+      {
+        "owner": 0,
+        "data_id": 35000000,
+        "x": 9000,
+        "y": 3000,
+        "hp": 7025,
+        "max_hp": 7728
+      },
+      {
+        "owner": 0,
+        "data_id": 35000001,
+        "x": 3500,
+        "y": 6500,
+        "hp": 4155,
+        "max_hp": 4858
+      },
+      {
+        "owner": 1,
+        "data_id": 35000000,
+        "x": 9000,
+        "y": 29000,
+        "hp": 7025,
+        "max_hp": 7728
+      },
+      {
+        "owner": 1,
+        "data_id": 35000001,
+        "x": 3500,
+        "y": 25500,
+        "hp": 4155,
+        "max_hp": 4858
+      },
+      {
+        "owner": 1,
+        "data_id": 35000001,
+        "x": 14500,
+        "y": 25500,
+        "hp": 1127,
+        "max_hp": 4858
+      }
+    ],
+    "destroyed": [
+      {
+        "owner": 0,
+        "data_id": 35000001,
+        "x": 14500,
+        "y": 6500,
+        "hp": 0,
+        "health_at_destruction": 0,
+        "native_destructor_observed": true
+      }
+    ]
+  },
+  {
+    "source_sha256": "4f758e02505c3c47cbc718b265668583207109c398c5b6106de80468f0dde6e3",
+    "orientation": 0,
+    "decks": [
+      {
+        "source_side": "team",
+        "proposed_native_owner": 1,
+        "oracle_final_hp": {
+          "king": 4824,
+          "princess0": 2446,
+          "princess1": 993,
+          "total": 8263
+        }
+      },
+      {
+        "source_side": "opponent",
+        "proposed_native_owner": 0,
+        "oracle_final_hp": {
+          "king": 4824,
+          "princess0": 729,
+          "princess1": 0,
+          "total": 5553
+        }
+      }
+    ],
+    "native": [
+      {
+        "owner": 0,
+        "data_id": 35000000,
+        "x": 9000,
+        "y": 3000,
+        "hp": 4824,
+        "max_hp": 4824
+      },
+      {
+        "owner": 0,
+        "data_id": 35000001,
+        "x": 14500,
+        "y": 6500,
+        "hp": 729,
+        "max_hp": 3052
+      },
+      {
+        "owner": 1,
+        "data_id": 35000000,
+        "x": 9000,
+        "y": 29000,
+        "hp": 4824,
+        "max_hp": 4824
+      },
+      {
+        "owner": 1,
+        "data_id": 35000001,
+        "x": 3500,
+        "y": 25500,
+        "hp": 2446,
+        "max_hp": 3052
+      },
+      {
+        "owner": 1,
+        "data_id": 35000001,
+        "x": 14500,
+        "y": 25500,
+        "hp": 993,
+        "max_hp": 3052
+      }
+    ],
+    "destroyed": [
+      {
+        "owner": 0,
+        "data_id": 35000001,
+        "x": 3500,
+        "y": 6500,
+        "hp": 0,
+        "health_at_destruction": 0,
+        "native_destructor_observed": true
+      }
+    ]
+  }
+]

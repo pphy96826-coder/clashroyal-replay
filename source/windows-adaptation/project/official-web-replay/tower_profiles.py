@@ -66,6 +66,47 @@ def bindings(doc):
     return rows
 
 
+def oracle_tower_entries(doc,owner):
+    """Page slots use each player's view; owner0 is rotated 180 degrees.
+
+    Only copy comparison entries; native spawn/input coordinates stay intact.
+    """
+    if type(owner) is not int or owner not in (0,1):raise ValueError('invalid tower owner')
+    for key,entry in zip(('king','princess0','princess1'),bindings(doc)[owner]['spawn_entries']):
+        yield key,dict(entry,grid_x=36-entry['grid_x'] if owner==0 else entry['grid_x'])
+
+
+def oracle_tower_pairs(deck,preparation,state):
+    """Retain surviving princess order, never sort HP or exchange opponents.
+
+    The battle-log princess HP array omits destroyed towers. Its one-element
+    form cannot identify which side fell. hp-popup pads the absent entry to 0.
+    Keep player-left/right order while both survive; after a loss compare the
+    surviving sequence and destruction count, without certifying the dead side.
+    """
+    owner=deck['proposed_native_owner'];oracle=deck.get('oracle_final_hp') or {}
+    keys=('king','princess0','princess1')
+    if any(type(oracle.get(key)) is not int or oracle[key]<0 for key in keys):return None
+    alive=state.get('towers',[])
+    destroyed=[t for t in state.get('destroyed_towers',[]) if t.get('native_destructor_observed') is True and t.get('hp')==0]
+    king_fell=any(t['owner']==owner and t['data_id']==35000000 and t['hp']==0 for t in alive+destroyed)
+    actual=[]
+    for key,entry in oracle_tower_entries(preparation,owner):
+        spot=(owner,entry['data_id']&0xffffffff,entry['grid_x']*500)
+        found=[t for t in alive if (t['owner'],t['data_id'],t['x'])==spot]
+        gone=[t for t in destroyed if (t['owner'],t['data_id'],t['x'])==spot]
+        if len(found)>1 or (found and gone):return None
+        if found:hp=found[0]['hp']
+        elif gone or (key!='king' and king_fell):hp=0
+        else:return None
+        if type(hp) is not int or hp<0:return None
+        actual.append(hp)
+    expected_pair=[oracle[key] for key in keys[1:] if oracle[key]>0]
+    actual_pair=[hp for hp in actual[1:] if hp>0]
+    expected_pair += [0]*(2-len(expected_pair));actual_pair += [0]*(2-len(actual_pair))
+    return [('king',oracle['king'],actual[0])]+[(key,expected,observed) for key,expected,observed in zip(keys[1:],expected_pair,actual_pair)]
+
+
 def render_towers(doc,prefix):
     rows=bindings(doc)
     text='struct ExpectedTower{unsigned id;int x,y,level,hp;bool king;};\n'

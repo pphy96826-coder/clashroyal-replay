@@ -2,7 +2,7 @@
 
 Windows 默认部署已更新为 MuMu 内的安卓 APK。控制台和运行依赖直接在安卓实例内执行，可在游戏悬浮窗操作。
 
-[下载新版完整资料](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261021) · [详细图文教程](docs/mumu-android/安装教程.md) · [离线网页版](docs/mumu-android/安装教程.html) · [PDF](docs/mumu-android/MuMu-Replay-Installation-Guide.pdf) · [实机验收范围](docs/mumu-android/验收结果.json)
+[下载新版完整资料](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261021-hotfix1) · [详细图文教程](docs/mumu-android/安装教程.md) · [离线网页版](docs/mumu-android/安装教程.html) · [PDF](docs/mumu-android/MuMu-Replay-Installation-Guide.pdf) · [实机验收范围](docs/mumu-android/验收结果.json)
 
 ## 安装
 
@@ -13,6 +13,13 @@ Windows 默认部署已更新为 MuMu 内的安卓 APK。控制台和运行依�
 5. 导入后自动准备，在游戏悬浮窗点“播放下一个”，无需回到完整控制台启动。
 
 APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu 翻译辅助模块。普通使用无需 Windows Python、NDK、桌面桥接服务或旧 Edge 扩展。
+
+## Hotfix1 更新
+
+- 只有实际打出猎人，或使用可明确归属骷髅帝王的技能，且终局不匹配时搜索种子。
+- 修复毁塔后存活公主塔列表被误当成固定左右槽位的问题；双塔顺序保留，不排序凑匹配。
+- 同一 106 指令回放重新完整核验播放：0 次种子重试，战报血差 0，毁塔侧保留未核定标记。
+- [根因、逐塔证据与验收](docs/mumu-android/修复说明.md)。
 
 ## 本版功能
 
@@ -35,11 +42,11 @@ APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu �
 | MuMu-Replay-Installation-Guide.pdf | 离线图文手册 |
 | SHA256SUMS.txt | 发布文件的 SHA-256 |
 
-当前构建：`2026.10.21-mumu-dev21`。APK SHA-256：`70e87ba0c0df247d2bbb3f88fdd928f2d0a3469de78088ede290eff8b588377b`。
+当前构建：`2026.10.21-mumu-dev24`。APK SHA-256：`44f6ea439e2ada3c897a8dfce16d632a0c469272008dd5ff05e44423e47dfb7d`。
 
 ## 验证与限制
 
-已在 MuMu 中完整执行并可见播放 141 条指令，原生 JSON 往返通过，终局 tick 6196、塔血差 0。客户端自动重开、回到大厅与实际控制台恢复事件有记录。播放中强退约 3 秒解除占用并回到控制台。新按钮设备结果见随包验收 JSON。
+已在 MuMu 中完整执行并可见播放 141 条指令，原生 JSON 往返通过，终局 tick 6196、塔血差 0。客户端自动重开、回到大厅与实际控制台恢复事件有记录。播放中强退约 3 秒解除占用并回到控制台。Hotfix1 的最新 106 指令完整播放和种子搜索限制见随包验收 JSON。毁塔后的来源列表不证明具体左右侧；历史“精确”指塔血记录匹配，不能证明过程唯一。
 
 同一实例资料准备阶段 A/B 实测 69.95 秒 → 8.01 秒，这只是一段准备；完整预演和种子匹配仍需时间。新电脑须核验自己的实例，不将本机结果推广为所有安卓虚拟机兼容。
 

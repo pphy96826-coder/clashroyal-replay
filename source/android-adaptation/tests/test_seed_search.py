@@ -31,7 +31,8 @@ class SeedSearchTests(unittest.TestCase):
     def test_page_is_always_compared_and_closest_run_is_kept(self):
         block=SOURCE[SOURCE.index('# Always compare the simulated end with the page'):SOURCE.index("receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']")]
         self.assertIn('tier,difference=page_comparison(read(source),aligned,execution)',block)
-        self.assertIn("if tier!='exact':",block)
+        self.assertIn("if tier!='exact' and reasons:",block)
+        self.assertIn('reasons=search_reasons(aligned,read(source))',block)
         # Each seed gets its own deal calibration before any source command runs.
         self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,deal,trial_seen)'))
         self.assertLess(block.index('trial=calibrate(trial,deal,trial_seen)'),block.index('search(trial,execute_candidate'))
@@ -39,8 +40,7 @@ class SeedSearchTests(unittest.TestCase):
         # actual seed is retained with its result, while retries include original.
         self.assertIn("best=(rank(tier,difference),initial_seed",block)
         self.assertIn('original_seed=source_seed',block)
-        self.assertIn("if rank(trial_tier,trial_difference)<best[0]:",block)
-        self.assertIn("if best[2]=='exact':break",block)
+        self.assertIn('best,attempts,stopped=choose_trials(',block)
         self.assertIn("selected_candidate.clear();selected_candidate.update(chosen)",block)
         self.assertIn("raise Cancelled('cancelled during seed search')",block)
         tail=SOURCE[SOURCE.index("receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']"):]
@@ -56,22 +56,22 @@ class SeedSearchTests(unittest.TestCase):
             self.assertEqual(len(values),len(set(values)));self.assertLessEqual(len(values),60)
 
     def test_page_comparison_tiers(self):
-        import sys,types
+        import sys,importlib.util
         def run(page,alive,destroyed=()):
-            tower_profiles=types.ModuleType('tower_profiles')
-            entries=[dict(data_id=35000000,grid_x=18),dict(data_id=35000001,grid_x=7),dict(data_id=35000001,grid_x=29)]
-            tower_profiles.bindings=lambda p:{0:dict(spawn_entries=entries),1:dict(spawn_entries=entries)}
+            spec=importlib.util.spec_from_file_location('tower_profiles',ROOT.parent/'windows-adaptation/project/official-web-replay/tower_profiles.py')
+            tower_profiles=importlib.util.module_from_spec(spec);spec.loader.exec_module(tower_profiles)
             sys.modules['tower_profiles']=tower_profiles
             cmp=load('page_comparison')
             source=dict(decks=[dict(proposed_native_owner=o,oracle_final_hp=dict(zip(('king','princess0','princess1'),page[o]))) for o in (0,1)])
-            xs=(9000,3500,14500);ids=(35000000,35000001,35000001)
-            tw=[dict(owner=o,data_id=ids[i],x=xs[i],hp=hp) for o in (0,1) for i,hp in enumerate(alive[o]) if hp is not None]
-            gone=[dict(owner=o,data_id=ids[i],x=xs[i],hp=0,native_destructor_observed=True) for o,i in destroyed]
-            return cmp(source,{},dict(battle_state=dict(towers=tw,destroyed_towers=gone)))
+            xs={0:(9000,14500,3500),1:(9000,3500,14500)};ids=(35000000,35000001,35000001)
+            tw=[dict(owner=o,data_id=ids[i],x=xs[o][i],hp=hp) for o in (0,1) for i,hp in enumerate(alive[o]) if hp is not None]
+            gone=[dict(owner=o,data_id=ids[i],x=xs[o][i],hp=0,native_destructor_observed=True) for o,i in destroyed]
+            try:return cmp(source,{},dict(battle_state=dict(towers=tw,destroyed_towers=gone)))
+            finally:sys.modules.pop('tower_profiles',None)
         page={0:(2151,1630,0),1:(4824,2037,2146)}
         self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)},[(0,2)]),('exact',0))
         self.assertEqual(run(page,{0:(2000,1600,None),1:(4824,2037,2146)},[(0,2)]),('same_towers',181))
-        self.assertEqual(run(page,{0:(4824,None,2359),1:(4824,2144,2146)},[(0,1)])[0],'same_winner')
+        self.assertEqual(run(page,{0:(4824,None,2359),1:(4824,2144,2146)},[(0,1)])[0],'same_towers')
         self.assertEqual(run(page,{0:(4824,1467,2278),1:(4824,None,1717)},[(1,1)])[0],'different')
         # A destroyed princess never counts the king as destroyed.
         self.assertEqual(run(page,{0:(4824,1630,None),1:(4824,2037,2146)},[(0,2)]),('same_towers',2673))
