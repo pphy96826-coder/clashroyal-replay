@@ -16,6 +16,8 @@ APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu �
 
 ## Hotfix1 更新
 
+游戏客户端未变化：[下载仓库原有的腾讯 38.4.2 安装包](https://github.com/pphy96826-coder/clashroyal-replay/releases/download/mumu-android-20261021/Tencent-ClashRoyale-38.4.2.apk)。新版下载页沿用此已校验文件，已有匹配客户端无需重装。
+
 - 只有实际打出猎人，或使用可明确归属骷髅帝王的技能，且终局不匹配时搜索种子。
 - 修复毁塔后存活公主塔列表被误当成固定左右槽位的问题；双塔顺序保留，不排序凑匹配。
 - 同一 106 指令回放重新完整核验播放：0 次种子重试，战报血差 0，毁塔侧保留未核定标记。
