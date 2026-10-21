@@ -38,17 +38,19 @@ public final class NativePython {
         String expected=new String(MainActivity.read(context.getAssets().open(digestName),256),StandardCharsets.US_ASCII).trim();
         if(!expected.matches("[a-f0-9]{64}"))throw new IOException("missing embedded runtime hash");
         File root=new File(context.getFilesDir(),prefix+expected.substring(0,16));
+        if(root.exists()&&!new File(root,"runtime-files.json").isFile())RuntimeInstall.quarantineIncomplete(root);
         if(!root.exists()){
             if(!assetHash(context,archiveName,archiveLimit).equals(expected))throw new IOException("embedded archive hash differs");
-            if(!root.mkdir())throw new IOException("cannot create private runtime");
+            File staged=RuntimeInstall.createStaging(root);
             // Two streaming passes avoid holding an 85MB debugger archive and
             // its ByteArrayOutputStream copy in a phone's Java heap at once.
             ZipInputStream archive=new ZipInputStream(context.getAssets().open(archiveName));Set<String> seen=new HashSet<String>();long total=0;
             try{ZipEntry entry;while((entry=archive.getNextEntry())!=null){
                 if(entry.isDirectory()||!seen.add(entry.getName())||seen.size()>8192)throw new IOException("invalid runtime member");
-                File file=member(root,entry.getName());File parent=file.getParentFile();if(!parent.isDirectory()&&!parent.mkdirs())throw new IOException("cannot create runtime folder");
+                File file=member(staged,entry.getName());File parent=file.getParentFile();if(!parent.isDirectory()&&!parent.mkdirs())throw new IOException("cannot create runtime folder");
                 FileOutputStream out=new FileOutputStream(file);try{byte[] b=new byte[32768];int n;while((n=archive.read(b))!=-1){total+=n;if(total>expandedLimit)throw new IOException("runtime extraction budget exceeded");out.write(b,0,n);}out.getFD().sync();}finally{out.close();}
             }}finally{archive.close();}
+            verify(staged);RuntimeInstall.publish(staged,root);return root;
         }
         verify(root);return root;
     }

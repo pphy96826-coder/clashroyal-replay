@@ -35,7 +35,7 @@ class SeedSearchTests(unittest.TestCase):
         self.assertIn('reasons=search_reasons(aligned,read(source))',block)
         # Each seed gets its own deal calibration before any source command runs.
         self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,deal,trial_seen)'))
-        self.assertLess(block.index('trial=calibrate(trial,deal,trial_seen)'),block.index('search(trial,execute_candidate'))
+        self.assertLess(block.index('trial=calibrate(trial,deal,trial_seen)'),block.index('fixed_choice_trial(trial,fixed_skills,execute_candidate'))
         # The initial run may use a hint, but it still must fully execute. Its
         # actual seed is retained with its result, while retries include original.
         self.assertIn("best=(rank(tier,difference),initial_seed",block)

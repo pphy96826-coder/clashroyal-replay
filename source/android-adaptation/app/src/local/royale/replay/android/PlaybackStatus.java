@@ -121,6 +121,7 @@ public final class PlaybackStatus {
         if(p.equals("ready_to_open")){String m=ConsoleActions.pageMatch(state);
             return m.equals("exact")?"整局校验通过 · 准备前台加载":m.equals("same_towers")?"终局近似网页 · 准备前台加载":"⚠ 终局与网页不符 · 准备前台加载";}
         if(p.equals("waiting_lobby"))return "加载中 · 等待游戏大厅就绪";
+        if(p.equals("waiting_preparation_lobby"))return "准备已暂停 · 等待游戏前台大厅";
         if(p.equals("starting"))return "确认中 · 等待原生回放实际步进";
         if(p.equals("waiting_foreground"))return "等待游戏画面 · 尚未确认开始";
         if(p.equals("playing")){String m=ConsoleActions.pageMatch(state);

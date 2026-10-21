@@ -3,6 +3,19 @@ import json
 
 class BestRequested(Exception):pass
 
+class SearchBudgetExhausted(RuntimeError):pass
+
+
+def require_attempt_budget(directory,attempt):
+    """Keep four existing receipt slots for JSON/scene/terminal verification.
+
+    Retained MuMu modules cannot be unloaded safely. This respects the existing
+    256-receipt ownership cap instead of reaching it midway through playback.
+    """
+    count=sum(1 for _ in directory.glob('*-result.json'))
+    if count>=256 or (count>=252 and attempt not in ('bootstrap-v4','scene-v1')):
+        raise SearchBudgetExhausted('达到本场安全准备上限；停止新增匹配候选，保留已完整执行结果')
+
 def search_reasons(preparation,source):
     """Only actual Hunter plays or an identifiable Skeleton King ability.
 
@@ -53,6 +66,9 @@ def choose_trials(best,seeds,evaluate,should_stop,progress,cancel_error):
         except BestRequested:
             row.update(executed=False,stopped_at_safe_boundary=True)
             attempts.append(row);stopped=True;break
+        except SearchBudgetExhausted as error:
+            row.update(executed=False,budget_exhausted=True,error=str(error))
+            attempts.append(row);break
         except Exception as error:
             if isinstance(error,cancel_error):raise
             row.update(executed=False,error=str(error)[:300])

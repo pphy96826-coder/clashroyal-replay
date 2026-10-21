@@ -30,7 +30,7 @@ from align_native_deal import align,calibrate,deck_fingerprint
 from finalize_replay import finalize
 from proc_maps import MapsSnapshotError,diagnostics as maps_diagnostics
 from mumu_platform import enabled as mumu_enabled,system_env,host_binary
-from seed_search_control import BestRequested,requested as best_requested,choose_trials,search_reasons
+from seed_search_control import BestRequested,SearchBudgetExhausted,requested as best_requested,choose_trials,search_reasons,require_attempt_budget
 
 
 PREPARE_AHEAD_SECONDS=7200
@@ -121,8 +121,8 @@ def wait_idle_lobby(identity, *, progress, cancellation, timeout=120):
     Two seconds of foreground + strict idle observations are required; the
     native gate still independently checks immediately before component load.
     """
-    deadline=time.monotonic()+timeout;stable_since=None
-    while time.monotonic()<deadline:
+    deadline=None if timeout is None else time.monotonic()+timeout;stable_since=None
+    while deadline is None or time.monotonic()<deadline:
         cancellation()
         # Generation/read errors are not idle states and must fail closed.
         try:state=scene_state(identity)
@@ -244,6 +244,23 @@ class Debugger:
             else:process=target.AttachToProcessWithID(self.debugger.GetListener(),identity['pid'],error)
             if not error.Success() or not process.IsValid():raise RuntimeError('local game attach failed: '+str(error))
             session.verify()
+            if self.translated:
+                from mumu_context import ready as context_ready
+                samples=[];measure['mumu_pre_expression_context']=samples
+                for sample in range(20):
+                    ready,observation=context_ready(lldb,process,identity['pid'],session.verify())
+                    samples.append(observation)
+                    if ready:break
+                    # No expression, allocation or component load has occurred.
+                    # Detach resumes only original game code; reattach the same
+                    # verified generation. Never use this after a failed call.
+                    if sample==19:raise RuntimeError('MuMu host wait context unavailable before any expression; no component called')
+                    if not process.Detach().Success():raise RuntimeError('MuMu context sample detach failed')
+                    attachment.close();attachment=None;process=None
+                    time.sleep(.03);session.verify()
+                    with (directory/(attempt+'-server.log')).open('a') as log:
+                        attachment=Attachment(lldb,target,self.debugger.GetListener(),identity['pid'],log)
+                    process=attachment.process
             attached=time.monotonic();measure['attach_seconds']=attached-began-measure['verify_and_target_seconds']
             if scene:
                 import run_scene_gate as gate
@@ -628,15 +645,16 @@ def run(request_path,destination,prefix):
             # Prepare/bind immediately before every component; never migrate old
             # input owners if the client has restarted in the meantime.
             cancellation();ReadOnlySession(identity).verify()
+            if mumu_enabled():require_attempt_budget(destination,name)
             if context.get('seed_search_active'):
                 if best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity):raise BestRequested()
-                status('simulating','匹配随机种子 '+str(context.get('seed_trial_number',0))+'/'+str(SEED_ATTEMPTS)+'；'+('完整预演候选对局' if execute else '核验初始牌序')+'。可停止匹配并播放已完整执行的最优结果。')
+                status('simulating',('技能组合匹配，当前最优逐塔血差 '+str(context.get('best_page_hp_difference')) if context.get('ability_search_active') else '匹配随机种子 '+str(context.get('seed_trial_number',0))+'/'+str(SEED_ATTEMPTS))+'；'+('完整预演候选对局' if execute else '核验初始牌序')+'。可停止匹配并播放已完整执行的最优结果。')
             if not game_foreground():
                 # Android can evict lobby resources when a full-screen browser
                 # covers the client. Pure HTML workers may keep running; native
                 # publication waits for the same client's stable foreground.
                 status('waiting_preparation_lobby','后台 HTML 解析继续；原生准备已暂停，等待游戏回到前台大厅。')
-                wait_idle_lobby(identity,progress=lambda _phase,message:status('waiting_preparation_lobby',message),cancellation=cancellation)
+                wait_idle_lobby(identity,progress=lambda _phase,message:status('waiting_preparation_lobby',message),cancellation=cancellation,timeout=None)
             if context.get('seed_search_active') and best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity):raise BestRequested()
             compile_started=time.monotonic()
             build=destination/(name+'-build')
@@ -644,7 +662,7 @@ def run(request_path,destination,prefix):
             compiled_at=time.monotonic()
             if not game_foreground():
                 status('waiting_preparation_lobby','组件已编译；等待游戏回到前台大厅，再执行本场原生校验。')
-                wait_idle_lobby(identity,progress=lambda _phase,message:status('waiting_preparation_lobby',message),cancellation=cancellation)
+                wait_idle_lobby(identity,progress=lambda _phase,message:status('waiting_preparation_lobby',message),cancellation=cancellation,timeout=None)
             if context.get('seed_search_active') and best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity):raise BestRequested()
             publish_inputs(destination,build,preparation/'runtime',name)
             published_at=time.monotonic()
@@ -684,16 +702,19 @@ def run(request_path,destination,prefix):
             shifted=aligned
         else:raise RuntimeError('原生牌序有界校准未通过；没有执行源指令')
         status('simulating','手机原生引擎：完整执行全部下牌和技能。')
-        from ability_search import search,terminal_hp_matches
+        from ability_search import search,terminal_hp_matches,fixed_choice_trial
+        rng_eligible=bool(search_reasons(aligned,read(source)))
         selected_candidate={}
+        candidate_records={}
         attempt_prefix=''
         def execute_candidate(candidate,number):
             nonlocal prep
             prep=preparation/(attempt_prefix+'ability-candidate-'+str(number)+'.json');write_new(prep,candidate)
             name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else ('bootstrap-v3' if number==0 else 'ability-candidate-'+str(number))
-            if not attempt_prefix:status('simulating','完整预演技能目标候选 '+str(number+1)+'；只接受整局指令成功且终局塔血匹配的歧义候选。')
+            if not attempt_prefix:status('simulating','优先比较技能组合 '+str(number+1)+'；固定种子，保留六塔逐塔血差最小的完整对局，然后搜索随机种子。')
             candidate_receipt=probe(name,execute=True,candidate=True)
             selected_candidate.update(receipt=candidate_receipt,preparation=prep)
+            candidate_records[str(prep)]=dict(selected_candidate)
             return read(destination/(name+'-source-execution.json')),dict(attempt=name,preparation=str(prep))
         if diagnostic is not None:
             from diagnostic_prefix import preview_inputs
@@ -708,14 +729,30 @@ def run(request_path,destination,prefix):
                            original_source_event_count=len(original['events']))
             status('validating','诊断预览：仅播放已成功执行的前缀，在原生分歧点暂停；不是完整回放。')
         else:
+            def skill_difference(candidate,result):
+                _,difference=page_comparison(read(source),candidate,result)
+                if difference is None:raise ValueError('技能候选缺少可核验的逐塔血量')
+                return difference
+            def skill_best(candidate,result,difference,evidence):
+                tier,_=page_comparison(read(source),candidate,result)
+                context.update(seed_search_active=True,ability_search_active=True,best_source_execution_verified=True,
+                    best_page_match=tier,best_page_hp_difference=difference)
+                status('simulating','技能组合当前最优逐塔血差 '+str(difference)+'；继续比较技能组合。可停止匹配并播放当前最优完整对局。')
             try:
                 aligned,execution,search_result=search(aligned,execute_candidate,
                     lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
-                    cancelled=lambda:(destination/'stop-request.json').exists())
+                    cancelled=lambda:(destination/'stop-request.json').exists(),score=skill_difference,on_best=skill_best,
+                    stop_requested=lambda:best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity),
+                    boundary_errors=(BestRequested,SearchBudgetExhausted))
             except Exception as error:
                 if hasattr(error,'search_report'):write_new(destination/'ability-search.json',error.search_report)
                 raise
             write_new(destination/'ability-search.json',search_result)
+            selected_candidate.clear();selected_candidate.update(candidate_records[search_result['selected_evidence']['preparation']])
+            context.update(ability_search_active=False,seed_search_active=False,
+                skill_search_hp_difference=search_result['selected_hp_difference'],
+                skill_search_attempts=len(search_result['attempts']),skill_search_stopped_by_user=search_result['stopped_by_user'])
+            fixed_skills=copy.deepcopy(aligned.get('ability_target_choices',{}))
             # Always compare the simulated end with the page (the search only does so for ambiguous abilities).
             tier,difference=page_comparison(read(source),aligned,execution)
             initial_seed=aligned['initialization_only']['rndSeed'];original_seed=source_seed
@@ -723,11 +760,11 @@ def run(request_path,destination,prefix):
             side_known=all(all(d['oracle_final_hp'][key]>0 for key in ('princess0','princess1')) for d in read(source)['decks'])
             context.update(seed_search_eligible=bool(reasons),seed_search_reasons=reasons,
                 tower_comparison_basis='per-owner-native-spawn-order-and-survivors-v2',destroyed_princess_side_verified=side_known)
-            seed_report=dict(search_policy='hunter-play-or-skeleton-king-ability-v1',eligible=bool(reasons),trigger_reasons=reasons,
+            seed_report=dict(search_policy='best-six-tower-skills-then-eligible-seeds-v2',fixed_ability_target_choices=fixed_skills,eligible=bool(reasons),trigger_reasons=reasons,
                 original_seed=original_seed,original_tier=tier if initial_seed==original_seed else None,
                 original_difference=difference if initial_seed==original_seed else None,initial_seed=initial_seed,
                 preparation_hint_used=hint_detail['used'],attempts=[],selected_seed=initial_seed)
-            def rank(tier,difference):return (PAGE_MATCH_TIERS.index(tier),difference if difference is not None else 1<<30)
+            def rank(tier,difference):return (difference if difference is not None else 1<<30,PAGE_MATCH_TIERS.index(tier))
             best=(rank(tier,difference),initial_seed,tier,difference,(aligned,execution,search_result,dict(selected_candidate)))
             if tier!='exact' and reasons:
                 context.update(seed_search_active=True,best_source_execution_verified=True,best_page_match=tier,best_page_hp_difference=difference)
@@ -749,9 +786,8 @@ def run(request_path,destination,prefix):
                             if trial['native_deal_ready']:break
                         else:raise RuntimeError('seed deal calibration did not converge')
                         attempt_prefix='seed-'+str(number)+'-'
-                        trial,trial_execution,trial_search=search(trial,execute_candidate,
-                            lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
-                            cancelled=lambda:(destination/'stop-request.json').exists())
+                        trial,trial_execution,trial_search=fixed_choice_trial(trial,fixed_skills,execute_candidate,
+                            lambda candidate,result:terminal_hp_matches(read(source),candidate,result))
                         trial_tier,trial_difference=page_comparison(read(source),trial,trial_execution)
                         return (rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
                             (trial,trial_execution,trial_search,dict(selected_candidate)))
@@ -759,6 +795,8 @@ def run(request_path,destination,prefix):
                 best,attempts,stopped=choose_trials(best,retry_seed_plan(request['source_sha256'],original_seed,initial_seed),evaluate_seed,
                     lambda:best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity),progress,Cancelled)
                 seed_report.update(attempts=attempts,stopped_by_user=stopped)
+                context['seed_search_budget_exhausted']=any(row.get('budget_exhausted') for row in attempts)
+                seed_report['budget_exhausted']=context['seed_search_budget_exhausted']
                 context['seed_search_stopped_by_user']=stopped
             context['seed_search_active']=False
             if tier=='exact':seed_report['skipped_reason']='initial_result_exact'
@@ -801,6 +839,7 @@ def run(request_path,destination,prefix):
             elif not context.get('final_hp_matched'):ready_message='全部指令已执行，但终局与网页不符（已另试 '+str(context.get('seed_attempts',0))+' 个随机种子）；仍可播放，过程可能与原局不同。'
             elif context.get('random_seed_inferred'):ready_message='换用随机种子后战报塔血一致；原种子未知，毁塔侧未核定，过程为推断。等待打开游戏。'
             else:ready_message='全部指令及 JSON 核验通过，双方国王塔和剩余公主塔血量与战报一致；毁塔侧未核定。等待悬浮进度卡就绪并打开游戏。'
+            if context.get('seed_search_budget_exhausted'):ready_message+=' 已达到本场安全准备上限，保留已完整验证的最佳结果。'
             status('ready_to_open',ready_message)
             signal=destination/'foreground-request.json'
             if signal.is_file():
@@ -870,8 +909,8 @@ def run(request_path,destination,prefix):
                 status('waiting_foreground','后台尚未观察到实际步进；可点“返回游戏观看”激活原生画面。不会把提交或加载当成开始。',tick=current['tick'])
             time.sleep(2)
         status('monitor_expired','本机观察等待已结束；未重复提交或终止原生场景。',monitor_active=False)
-    except Cancelled:
-        status('cancelled','已在安全边界取消本机准备；没有重复发布原生任务。',monitor_active=False)
+    except Cancelled as error:
+        status('cancelled','已在安全边界取消本机准备；没有重复发布原生任务。原因：'+str(error),monitor_active=False,cancellation_reason=str(error))
     except BaseException:
         released=False
         try:

@@ -8,7 +8,7 @@ TREE=ast.parse((ROOT/'device/device_playback.py').read_text())
 
 
 class LobbyReadinessTests(unittest.TestCase):
-    def run_wait(self,states,foreground=None,cancel_at=None):
+    def run_wait(self,states,foreground=None,cancel_at=None,timeout=8):
         class Clock:
             now=0
             def monotonic(self):return self.now
@@ -24,11 +24,13 @@ class LobbyReadinessTests(unittest.TestCase):
         def cancellation():
             if clock.now==cancel_at:raise RuntimeError('user cancelled')
         class Cancelled(Exception):pass
+        class SceneSnapshotChanged(ValueError):pass
         scope=dict(time=clock,scene_state=scene,require_idle_lobby=required,Cancelled=Cancelled,
+                   SceneSnapshotChanged=SceneSnapshotChanged,
                    game_foreground=lambda:True if foreground is None else foreground[min(int(clock.now),len(foreground)-1)])
         node=next(n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name=='wait_idle_lobby')
         exec(compile(ast.Module(body=[node],type_ignores=[]),'lobby-test','exec'),scope)
-        scope['wait_idle_lobby']({},progress=lambda *args:progress.append(args),cancellation=cancellation,timeout=8)
+        scope['wait_idle_lobby']({},progress=lambda *args:progress.append(args),cancellation=cancellation,timeout=timeout)
         return clock.now,reads,progress
 
     def test_loading_activity_is_not_idle_lobby(self):
@@ -36,6 +38,14 @@ class LobbyReadinessTests(unittest.TestCase):
         self.assertEqual(now,4)
         self.assertEqual(reads,[0,1,2,3,4])
         self.assertTrue(all(p[0]=='waiting_lobby' for p in progress))
+
+    def test_preparation_pause_survives_two_minutes_and_resumes_same_wait(self):
+        now,_,_=self.run_wait(['idle'],foreground=[False]*130+[True]*3,timeout=None)
+        self.assertEqual(now,132)
+
+    def test_unbounded_preparation_pause_is_still_user_cancellable(self):
+        with self.assertRaisesRegex(RuntimeError,'user cancelled'):
+            self.run_wait(['idle'],foreground=[False],cancel_at=130,timeout=None)
 
     def test_foreground_loss_resets_stability(self):
         now,_,_=self.run_wait(['idle'],[True,False,True,True,True])

@@ -34,11 +34,25 @@ public final class MuMuPlaybackIntegrationTests extends Instrumentation {
         }else PlaybackService.begin(getTargetContext(),raw,4);
         String requestId=null;
         if(foregroundPreparation){
-            Thread.sleep(1500);
+            // First-install extraction can take longer than a fixed 1.5s. Wait
+            // for this new service job rather than crashing its UI thread and
+            // interrupting the very runtime installation under acceptance.
+            boolean prepared=false;long setupDeadline=android.os.SystemClock.elapsedRealtime()+180000;
+            while(android.os.SystemClock.elapsedRealtime()<setupDeadline){
+                Thread.sleep(250);
+                if(!serviceState.isFile())continue;
+                String text=MainActivity.text(serviceState,32768);if(text.equals(previousService))continue;
+                JSONObject current=new JSONObject(text);
+                if(current.optString("state","").equals("request_failed"))throw new IOException(current.toString());
+                if(current.has("directory")&&hash.equals(current.optString("source_sha256",""))){prepared=true;break;}
+            }
+            if(!prepared)throw new IOException("new service job not ready; no foreground handoff attempted");
+            final Exception[] openingError=new Exception[1];
             runOnMainSync(new Runnable(){public void run(){try{
                 PlaybackService.coverBeforeGame("MuMu 适配测试 · 正在准备","在游戏前台校验本地回放；尚未提交播放。");
                 PlaybackService.openGame(getTargetContext());
-            }catch(Exception error){throw new RuntimeException(error);}}});
+            }catch(Exception error){openingError[0]=error;}}});
+            if(openingError[0]!=null)throw openingError[0];
         }
         long deadline=android.os.SystemClock.elapsedRealtime()+3600000;
         while(android.os.SystemClock.elapsedRealtime()<deadline){

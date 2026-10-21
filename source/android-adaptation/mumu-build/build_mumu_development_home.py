@@ -10,6 +10,7 @@ files['app/mapped_elf.py']=(root/'work/android-mumu-adaptation/source/windows-ad
 files['app/device_metadata.py']=(device/'device_metadata.py').read_bytes()
 files['app/preparation_hint.py']=(device/'preparation_hint.py').read_bytes()
 files['app/seed_search_control.py']=(device/'seed_search_control.py').read_bytes()
+files['app/mumu_context.py']=(device/'mumu_context.py').read_bytes()
 for name in ('mumu_tower_observer.py','native_observation.py'):files['app/'+name]=(device/name).read_bytes()
 for name in ('tower_profiles.py','ability_search.py','compare_native_result.py'):
  files['app/'+name]=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay'/name).read_bytes()

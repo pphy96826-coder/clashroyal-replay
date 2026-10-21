@@ -67,4 +67,6 @@ run([jdk/'java.exe','-Xmx128m','-jar',sdk/'lib/apksigner.jar','sign','--ks',key,
 run([jdk/'java.exe','-Xmx128m','-jar',sdk/'lib/apksigner.jar','verify','--verbose',apk])
 report=dict(package=package,version=name,version_code=version,sha256=hashlib.sha256(apk.read_bytes()).hexdigest(),bytes=apk.stat().st_size,signature_verified=True,official_sdk_api=32,python_bundle_sha256=meta['sha256'],device_e2e_verified=False,original_app_preserved=True)
 (out/'build-report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
-deliver=root/('outputs/Android原生复现/MuMu回放控制台-20261021-dev'+str(revision)+'.apk');os.link(apk,deliver)
+deliver=root/('outputs/Android原生复现/MuMu回放控制台-20261021-dev'+str(revision)+'.apk')
+try:os.link(apk,deliver)
+except OSError:shutil.copyfile(apk,deliver)

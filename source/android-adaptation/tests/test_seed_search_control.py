@@ -5,6 +5,19 @@ spec=importlib.util.spec_from_file_location('seed_control',Path(__file__).resolv
 class Cancelled(Exception):pass
 def run(seed,tier=2,difference=100):return ((tier,difference),seed,('exact','same_towers','same_winner','different')[tier],difference,{'fully_executed':True})
 class SeedControlTests(unittest.TestCase):
+ def test_module_budget_stops_retries_without_discarding_verified_best(self):
+  evaluate=Mock(side_effect=control.SearchBudgetExhausted('reserved for scene'))
+  best,attempts,stopped=self.choose(evaluate)
+  self.assertEqual(best[1],7);self.assertEqual(evaluate.call_count,1)
+  self.assertTrue(attempts[0]['budget_exhausted']);self.assertFalse(attempts[0]['executed']);self.assertFalse(stopped)
+ def test_receipt_slots_are_reserved_for_roundtrip_scene_and_terminal(self):
+  with tempfile.TemporaryDirectory() as folder:
+   path=Path(folder)
+   for i in range(252):(path/(str(i)+'-result.json')).write_text('{}')
+   with self.assertRaises(control.SearchBudgetExhausted):control.require_attempt_budget(path,'seed-9-candidate-4')
+   control.require_attempt_budget(path,'bootstrap-v4');control.require_attempt_budget(path,'scene-v1')
+   for i in range(252,256):(path/(str(i)+'-result.json')).write_text('{}')
+   with self.assertRaises(control.SearchBudgetExhausted):control.require_attempt_budget(path,'scene-v1')
  def choose(self,evaluate,stop=lambda:False,seeds=(8,9,10)):
   return control.choose_trials(run(7),seeds,evaluate,stop,lambda *_:None,Cancelled)
  def test_stop_before_next_trial_keeps_complete_initial_result(self):
