@@ -1,0 +1,64 @@
+{
+  "replay_tag": "08CY0LPY90V0",
+  "source_sha256": "f361b771fc0c0e6506186371b0c7a33c04a74166db8153e6d3ab574d70b99689",
+  "events": 55,
+  "source_orientation": 1,
+  "comparison_basis": "per-owner-native-spawn-order-and-survivors-v2",
+  "prior_false_difference": 1734,
+  "correct_difference": 0,
+  "rows": [
+    {
+      "owner": 0,
+      "tower": "king",
+      "native_x": 9000,
+      "source_hp": 7728,
+      "native_hp": 7728,
+      "absolute_difference": 0
+    },
+    {
+      "owner": 0,
+      "tower": "princess0",
+      "native_x": 3500,
+      "source_hp": 3408,
+      "native_hp": 3408,
+      "absolute_difference": 0
+    },
+    {
+      "owner": 0,
+      "tower": "princess1",
+      "native_x": 14500,
+      "source_hp": 4275,
+      "native_hp": 4275,
+      "absolute_difference": 0
+    },
+    {
+      "owner": 1,
+      "tower": "king",
+      "native_x": 9000,
+      "source_hp": 7549,
+      "native_hp": 7549,
+      "absolute_difference": 0
+    },
+    {
+      "owner": 1,
+      "tower": "surviving_princess",
+      "native_x": 3500,
+      "source_hp": 2115,
+      "native_hp": 2115,
+      "absolute_difference": 0
+    },
+    {
+      "owner": 1,
+      "tower": "destroyed_princess",
+      "native_x": 14500,
+      "source_hp": 0,
+      "native_hp": 0,
+      "absolute_difference": 0
+    }
+  ],
+  "destroyed_princess_source_side_verified": false,
+  "native_destroyed_tower_id": 3191249505,
+  "old_error": "owner0 compared x14500 to princess0 and x3500 to princess1: abs(3408-4275)*2",
+  "source_arrays_sorted": false,
+  "order_selected_from_result": false
+}

@@ -67,13 +67,17 @@ def bindings(doc):
 
 
 def oracle_tower_entries(doc,owner):
-    """Page slots use each player's view; owner0 is rotated 180 degrees.
+    """Page slots follow native spawn order for either owner: x3500, x14500.
 
-    Only copy comparison entries; native spawn/input coordinates stay intact.
+    Owner controls side membership, not another horizontal mirroring. The
+    asymmetric two-survivor 08CY0LPY90V0 receipt proves owner0's sequence:
+    page [3408,4275] is native x3500=3408, x14500=4275. Never choose an order
+    based on which one minimizes HP difference. A missing/dead entry remains
+    subject to the separately documented compact-survivor rule.
     """
     if type(owner) is not int or owner not in (0,1):raise ValueError('invalid tower owner')
     for key,entry in zip(('king','princess0','princess1'),bindings(doc)[owner]['spawn_entries']):
-        yield key,dict(entry,grid_x=36-entry['grid_x'] if owner==0 else entry['grid_x'])
+        yield key,dict(entry)
 
 
 def oracle_tower_pairs(deck,preparation,state):
@@ -81,7 +85,7 @@ def oracle_tower_pairs(deck,preparation,state):
 
     The battle-log princess HP array omits destroyed towers. Its one-element
     form cannot identify which side fell. hp-popup pads the absent entry to 0.
-    Keep player-left/right order while both survive; after a loss compare the
+    Keep fixed native spawn order while both survive; after a loss compare the
     surviving sequence and destruction count, without certifying the dead side.
     """
     owner=deck['proposed_native_owner'];oracle=deck.get('oracle_final_hp') or {}
@@ -89,12 +93,14 @@ def oracle_tower_pairs(deck,preparation,state):
     if any(type(oracle.get(key)) is not int or oracle[key]<0 for key in keys):return None
     alive=state.get('towers',[])
     destroyed=[t for t in state.get('destroyed_towers',[]) if t.get('native_destructor_observed') is True and t.get('hp')==0]
-    king_fell=any(t['owner']==owner and t['data_id']==35000000 and t['hp']==0 for t in alive+destroyed)
+    king_entry=bindings(preparation)[owner]['spawn_entries'][0]
+    king_id=king_entry['data_id']&0xffffffff
+    king_fell=any(t['owner']==owner and t['data_id']&0xffffffff==king_id and t['hp']==0 for t in alive+destroyed)
     actual=[]
     for key,entry in oracle_tower_entries(preparation,owner):
         spot=(owner,entry['data_id']&0xffffffff,entry['grid_x']*500)
-        found=[t for t in alive if (t['owner'],t['data_id'],t['x'])==spot]
-        gone=[t for t in destroyed if (t['owner'],t['data_id'],t['x'])==spot]
+        found=[t for t in alive if (t['owner'],t['data_id']&0xffffffff,t['x'])==spot]
+        gone=[t for t in destroyed if (t['owner'],t['data_id']&0xffffffff,t['x'])==spot]
         if len(found)>1 or (found and gone):return None
         if found:hp=found[0]['hp']
         elif gone or (key!='king' and king_fell):hp=0

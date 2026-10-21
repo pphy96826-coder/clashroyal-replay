@@ -29,12 +29,12 @@ class OracleOrientationTests(unittest.TestCase):
  def test_both_alive_order_is_preserved_and_not_sorted_to_match(self):
   self.source['decks'][1]['oracle_final_hp'].update(princess0=993,princess1=2446)
   self.assertEqual(self.result(),(('same_towers',2906),False))
- def test_both_alive_upper_player_uses_own_left_right(self):
+ def test_both_alive_owner_zero_keeps_fixed_spawn_order(self):
   self.report['battle_state']['destroyed_towers']=[]
   self.report['battle_state']['towers'].append({'owner':0,'data_id':35000001,'x':3500,'hp':200})
-  self.source['decks'][0]['oracle_final_hp']['princess1']=200
-  self.assertEqual(self.result(),(('exact',0),True))
   self.source['decks'][0]['oracle_final_hp'].update(princess0=200,princess1=729)
+  self.assertEqual(self.result(),(('exact',0),True))
+  self.source['decks'][0]['oracle_final_hp'].update(princess0=729,princess1=200)
   self.assertEqual(self.result(),(('same_towers',1058),False))
  def test_equal_side_totals_do_not_hide_per_tower_difference(self):
   self.source['decks'][1]['oracle_final_hp'].update(princess0=2436,princess1=1003)
@@ -55,4 +55,17 @@ class OracleOrientationTests(unittest.TestCase):
   self.report['battle_state']={'towers':[{'owner':o,'data_id':d,'x':x,'hp':hp} for o,d,x,hp in [(0,35000000,9000,7025),(0,35000001,3500,4155),(1,35000000,9000,7025),(1,35000001,3500,4155),(1,35000001,14500,1127)]],
     'destroyed_towers':[{'owner':0,'data_id':35000001,'x':14500,'hp':0,'native_destructor_observed':True}]}
   self.assertEqual(self.result(),(('exact',0),True))
+ def test_actual_55_command_two_survivor_receipt_not_false_1734(self):
+  rows=[]
+  for key,king,princess in [('tower-princess',35000000,35000001),('royal-chef',1471932914,-1103717791)]:
+   row=towers.default_binding();row.update(card_key=key,support_id=towers.TOWERS[key]['support_id'],internal_level=15 if key=='tower-princess' else 7,relative_level=0 if key=='tower-princess' else 8)
+   for i,e in enumerate(row['spawn_entries']):e.update(data_id=king if i==0 else princess,name=towers.TOWERS[key]['king_character'] if i==0 else towers.TOWERS[key]['character'])
+   rows.append(row)
+  self.prep={'tower_bindings':rows}
+  self.source={'source_orientation':1,'decks':[dict(proposed_native_owner=0,oracle_final_hp=dict(king=7728,princess0=3408,princess1=4275)),dict(proposed_native_owner=1,oracle_final_hp=dict(king=7549,princess0=2115,princess1=0))]}
+  self.report={'battle_state':{'towers':[dict(owner=o,data_id=d,x=x,hp=hp) for o,d,x,hp in [(0,35000000,9000,7728),(0,35000001,3500,3408),(0,35000001,14500,4275),(1,1471932914,9000,7549),(1,3191249505,3500,2115)]],
+    'destroyed_towers':[dict(owner=1,data_id=3191249505,x=14500,hp=0,native_destructor_observed=True)]}}
+  self.assertEqual(self.result(),(('exact',0),True))
+  self.source['decks'][0]['oracle_final_hp'].update(princess0=4275,princess1=3408)
+  self.assertEqual(self.result(),(('same_towers',1734),False))
 if __name__=='__main__':unittest.main()

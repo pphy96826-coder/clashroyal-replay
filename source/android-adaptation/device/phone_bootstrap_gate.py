@@ -147,7 +147,7 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
         result['native_calls']=True
         batch=None
         if translated_expression and 'cr_web_bootstrap_snapshot_address' in functions:
-            batch=struct.unpack('<4Q',memory(call('snapshot_address'),32))
+            batch=struct.unpack('<8Q',memory(call('snapshot_address'),64))
             result['native_snapshot_calls_batched']=True
         f=list(struct.unpack('<96Q',memory(batch[0] if batch else call('result_address'),768)));result['fields']=f;save()
         initialized=(f[:4]==[1,1,1,1] and f[4]==0 and f[6:8]==[1,4] and f[9:16]==[1,2,1,1,1,1,6]
@@ -160,7 +160,11 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
         if binding['source_execution'] and initialized:
             address=batch[2] if batch else expression(functions['cr_web_source_text_address'],'unsigned long long(*)()')
             size=batch[3] if batch else expression(functions['cr_web_source_text_size'],'unsigned long long(*)()')
-            source=json.loads(memory(address,size).decode())
+            result['source_observation']={'bytes':size,'native_source_error':batch[4] if batch else None,
+                'watched_towers':batch[5] if batch else None,'event_index':batch[6] if batch else None,'executed':batch[7] if batch else None}
+            save()
+            from native_observation import source_json
+            source=source_json(address,size,memory,result['source_observation'])
             with (directory/(attempt+'-source-execution.json')).open('x') as stream:json.dump(source,stream,indent=2)
             result['private_source_execution_complete']=source_completed(source,binding['source_event_count'])
             result['source_commands_generated']=len(source['commands'])

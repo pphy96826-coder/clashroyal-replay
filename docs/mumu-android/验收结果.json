@@ -1,49 +1,71 @@
 {
-  "version": "2026.10.21-mumu-dev24",
-  "apk_sha256": "44f6ea439e2ada3c897a8dfce16d632a0c469272008dd5ff05e44423e47dfb7d",
+  "version": "2026.10.21-mumu-dev26",
+  "apk_sha256": "71872ef4df5fa44d277bca70dcf8114d5081ad670e53aa576affbba7f0118539",
   "full_native_playback": {
     "verified": true,
-    "build": "2026.10.21-mumu-dev24",
-    "source_sha256": "4f758e02505c3c47cbc718b265668583207109c398c5b6106de80468f0dde6e3",
-    "retained_events": 106,
+    "build": "2026.10.21-mumu-dev26",
+    "source_sha256": "f361b771fc0c0e6506186371b0c7a33c04a74166db8153e6d3ab574d70b99689",
+    "retained_events": 55,
     "source_execution_verified": true,
     "native_roundtrip_verified": true,
     "actual_playing_observed": true,
     "full_playback_completed": true,
     "client_reopened": true,
     "lobby_returned": true,
-    "terminal_tick": 5520,
+    "terminal_tick": 3681,
     "page_match": "exact",
     "page_hp_difference": 0,
     "seed_search_eligible": false,
     "seed_attempts": 0,
     "destroyed_princess_side_verified": false,
-    "tower_comparison_basis": "per-owner-king-and-ordered-survivors-v1",
-    "preparation_seconds": 89.86672328199347,
+    "tower_comparison_basis": "per-owner-native-spawn-order-and-survivors-v2",
+    "preparation_seconds": 95.35997026000405,
     "actual_console_resume_event_verified": true,
     "console_resume_events": [
-      "         1792586645.438  8387  8387 I wm_on_resume_called: [264183931,local.royale.replay.mumu.MainActivity,RESUME_ACTIVITY]"
+      "         1792594641.107 30676 30676 I wm_on_resume_called: [234773909,local.royale.replay.mumu.MainActivity,RESUME_ACTIVITY]"
     ]
   },
-  "host_regression_checks": 42,
+  "host_regression_checks": {
+    "tests": 53,
+    "failures": 0,
+    "errors": 0,
+    "successful": true
+  },
   "console_device_checks": 60,
-  "seed_policy": {
-    "actual_hunter_play": 26000044,
-    "actual_skeleton_king_ability": 26000069,
-    "deck_membership_only_triggers": false,
-    "other_hero_skills_trigger": false,
-    "ambiguous_hero_identity_guessed": false
+  "tower_types_checked": [
+    "tower-princess",
+    "cannoneer",
+    "dagger-duchess",
+    "royal-chef"
+  ],
+  "native_observer_matrix": {
+    "tower_pair_cases": 16,
+    "negative_cases": 96,
+    "destructor_cases": 16,
+    "native_observer_fixture_verified": true,
+    "original_header_sha256": "4c634f4a8724ab19246b7b99483bbf54599e16cfc95f464dd5e740ede2f2b975",
+    "generated_header_sha256": "98bd4786aed57b18cda6f407b62563278888520c6b20cad0cac877acf27ca65d",
+    "scope": "isolated native memory fixture; no live battle mutated"
   },
   "tower_policy": {
-    "king_and_opponents_never_mixed": true,
-    "two_survivors_keep_source_order": true,
+    "native_spawn_order_both_owners": [
+      3500,
+      14500
+    ],
+    "owner0_extra_mirroring": false,
     "hp_sorting_or_result_dependent_swapping": false,
+    "unsigned_32bit_identity": true,
+    "king_id_from_own_binding": true,
     "single_survivor_does_not_prove_destroyed_side": true,
-    "missing_native_towers_guessed_zero": false
+    "missing_towers_without_evidence_are_unknown": true
+  },
+  "private_receipt_publication": {
+    "ownership_before_terminal_status": true,
+    "world_readable_permissions_added": false
   },
   "limitations": [
-    "Single-survivor battle-log arrays do not identify which princess side was destroyed.",
-    "A matching final HP record does not prove a unique original battle trajectory.",
-    "Native simulation remains serial in the same client process."
+    "All 16 tower pairs passed an isolated native memory fixture, not 16 full live battle playbacks.",
+    "Single-survivor source arrays do not identify which princess side was destroyed.",
+    "Matching terminal HP and source commands does not prove a unique original trajectory."
   ]
 }

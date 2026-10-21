@@ -63,7 +63,7 @@ class SeedSearchTests(unittest.TestCase):
             sys.modules['tower_profiles']=tower_profiles
             cmp=load('page_comparison')
             source=dict(decks=[dict(proposed_native_owner=o,oracle_final_hp=dict(zip(('king','princess0','princess1'),page[o]))) for o in (0,1)])
-            xs={0:(9000,14500,3500),1:(9000,3500,14500)};ids=(35000000,35000001,35000001)
+            xs={0:(9000,3500,14500),1:(9000,3500,14500)};ids=(35000000,35000001,35000001)
             tw=[dict(owner=o,data_id=ids[i],x=xs[o][i],hp=hp) for o in (0,1) for i,hp in enumerate(alive[o]) if hp is not None]
             gone=[dict(owner=o,data_id=ids[i],x=xs[o][i],hp=0,native_destructor_observed=True) for o,i in destroyed]
             try:return cmp(source,{},dict(battle_state=dict(towers=tw,destroyed_towers=gone)))

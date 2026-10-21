@@ -32,17 +32,26 @@ def adapt(session,out,source):
     include='#include "../runtime-audit-20261014-direct-route-v12/build/runtime_probe.cpp"'
     if original.count(include)!=1:raise ValueError('upstream runtime include changed')
     adapted=original.replace(include,'#include '+json.dumps(runtime_path.as_posix()))
+    from mumu_tower_observer import write_header
+    tower_header,tower_evidence=write_header(source,out,'bootstrap' if source.name=='native_bootstrap_probe.cpp' else 'scene')
+    token='#include "source_execution.h"'
+    if adapted.count(token)!=1:raise ValueError('audited source observer include changed')
+    adapted=adapted.replace(token,'#include '+json.dumps(tower_header.as_posix()))
     if source.name=='native_bootstrap_probe.cpp':
         # Combine four existing completed-task getters into one typed bridge
         # call. The audited task/engine and its cleanup guards stay unchanged.
         adapted+='''
 extern "C" __attribute__((visibility("default"))) uintptr_t cr_web_bootstrap_snapshot_address(){
-    static uintptr_t values[4]{};
+    static uintptr_t values[8]{};
     if(!probe||!probe->destroyed)return 0;
     values[0]=cr_web_bootstrap_result_address();
     values[1]=cr_web_bootstrap_towers_address();
     values[2]=cr_web_source_text_address();
     values[3]=cr_web_source_text_size();
+    values[4]=probe->source.error;
+    values[5]=probe->source.tower_watch_count;
+    values[6]=probe->source.event_index;
+    values[7]=probe->source.executed;
     return reinterpret_cast<uintptr_t>(values);
 }
 '''
@@ -59,5 +68,5 @@ extern "C" __attribute__((visibility("default"))) uintptr_t cr_web_bootstrap_sna
     evidence=dict(game_imports=imports,original_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
         adapted_sha256=hashlib.sha256(compiled.read_bytes()).hexdigest(),runtime_shim_sha256=hashlib.sha256(runtime_path.read_bytes()).hexdigest(),
         mapping_policy='exact-pinned-game-mapping-only',libc_binding='verified-game-import-typed-wrappers',
-        libc_wrappers_sha256=hashlib.sha256(wrappers.read_bytes()).hexdigest())
+        libc_wrappers_sha256=hashlib.sha256(wrappers.read_bytes()).hexdigest(),tower_observer=tower_evidence)
     return compiled,flags,evidence

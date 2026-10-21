@@ -7,7 +7,7 @@
 | 平台 | 安装教程 | 下载 | 源码文件夹 |
 | --- | --- | --- | --- |
 | **Mac**（Apple Silicon，MuMu 模拟器 Pro） | [纯安卓适配教程 · 第 3 节](android/README.md) | [hotfix37](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix37) | [`source/android-native/`](source/android-native/README.md) |
-| **Windows**（MuMu 6.6.4.0） | [Windows + MuMu 一体版教程](docs/mumu-android/安装教程.md) | [mumu-android hotfix1](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261021-hotfix1) | [`source/android-adaptation/`](source/android-adaptation/README.md)（共用模块在 `source/windows-adaptation/project/`） |
+| **Windows**（MuMu 6.6.4.0） | [Windows + MuMu 一体版教程](docs/mumu-android/安装教程.md) | [mumu-android hotfix2](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261022-hotfix2) | [`source/android-adaptation/`](source/android-adaptation/README.md)（共用模块在 `source/windows-adaptation/project/`） |
 | **已 Root 的安卓手机** | [纯安卓适配教程 · 第 4 节](android/README.md) | [hotfix37](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix37) | [`source/android-native/`](source/android-native/README.md) |
 | **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix37](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix37) | [`source/android-native/`](source/android-native/README.md) |
 | iPhone / iPad | 没有本机方案，只能远程观看：[可能的播放方法](docs/非Root安卓与iOS播放方案.md) | — | — |
@@ -31,26 +31,34 @@
 
 Windows 默认部署已更新为 MuMu 内的安卓 APK。控制台和运行依赖直接在安卓实例内执行，可在游戏悬浮窗操作。
 
-[下载新版完整资料](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261021-hotfix1) · [详细图文教程](docs/mumu-android/安装教程.md) · [离线网页版](docs/mumu-android/安装教程.html) · [PDF](docs/mumu-android/MuMu-Replay-Installation-Guide.pdf) · [实机验收范围](docs/mumu-android/验收结果.json)
+[下载新版完整资料](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261022-hotfix2) · [详细图文教程](docs/mumu-android/安装教程.md) · [离线网页版](docs/mumu-android/安装教程.html) · [PDF](docs/mumu-android/MuMu-Replay-Installation-Guide.pdf) · [实机验收范围](docs/mumu-android/验收结果.json)
 
 ### 安装
 
 1. 使用 MuMu 6.6.4.0 / Android 12，开启实例 Root 并重启；[MuMu 官方下载](https://mumu.163.com/download/)。
 2. 安装匹配的腾讯客户端 38.4.2，自行登录并进入普通大厅。
-3. 安装 `MuMu-Replay-20261021.apk`，给“MuMu回放控制台 · 测试版”允许 Root 和悬浮窗。
+3. 安装 `MuMu-Replay-20261022.apk`，给“MuMu回放控制台 · 测试版”允许 Root 和悬浮窗。
 4. 在模拟器内 Chrome 保存发布包里的 Play Replay 书签，从完整 RoyaleAPI Replay 页面发送回放。
 5. 导入后自动准备，在游戏悬浮窗点“播放下一个”，无需回到完整控制台启动。
 
 APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu 翻译辅助模块。普通使用无需 Windows Python、NDK、桌面桥接服务或旧 Edge 扩展。
 
-### Hotfix1 更新
+### Hotfix2 更新
+
+- 统一检查公主塔、炮塔、匕首女爵、皇家厨师，修复特殊编号被漏记导致不开播。
+- 去掉 owner0 多余镜像，双方按固定出生顺序逐塔比较；3408、4275 的假差 1734 修正为 0，不排序或择优交换。
+- 修复毁塔编号符号、皇家厨师国王塔编号及终局记录所有权交接；播完刷新并自动返回控制台。
+- 55 条指令原始回放在新版完整播放，六塔血差 0、种子重试 0。53 项主机回归、60 项控制台检查，以及 16 种塔楼组合的隔离原生观察器检查通过。
+- [根因、六塔数值与验证范围](docs/mumu-android/修复说明.md)。组合检查不等同于 16 种完整实战均已播放。
+
+### Hotfix1 历史更新
 
 游戏客户端未变化：[下载仓库原有的腾讯 38.4.2 安装包](https://github.com/pphy96826-coder/clashroyal-replay/releases/download/mumu-android-20261021/Tencent-ClashRoyale-38.4.2.apk)。新版下载页沿用此已校验文件，已有匹配客户端无需重装。
 
 - 只有实际打出猎人，或使用可明确归属骷髅帝王的技能，且终局不匹配时搜索种子。
 - 修复毁塔后存活公主塔列表被误当成固定左右槽位的问题；双塔顺序保留，不排序凑匹配。
 - 同一 106 指令回放重新完整核验播放：0 次种子重试，战报血差 0，毁塔侧保留未核定标记。
-- [根因、逐塔证据与验收](docs/mumu-android/修复说明.md)。
+- [历史说明与已纠正项](docs/mumu-android/Hotfix1-历史说明.md)。
 
 ### 本版功能
 
@@ -65,15 +73,15 @@ APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu �
 
 | 文件 | 用途 |
 | --- | --- |
-| MuMu-Replay-20261021.apk | 直接安装，全部回放运行依赖已内置 |
-| MuMu-Replay-Offline-20261021.zip | APK、图文教程、Chrome 书签、验收与校验说明 |
+| MuMu-Replay-20261022.apk | 直接安装，全部回放运行依赖已内置 |
+| MuMu-Replay-Offline-20261022.zip | APK、图文教程、Chrome 书签、验收与校验说明 |
 | Tencent-ClashRoyale-38.4.2.apk | 匹配的游戏客户端，不含账号数据；已有该版本可沿用 |
-| MuMu-Replay-Runtime-Dependencies-20261021.zip | 所有内置运行依赖的独立备份、许可与逐文件清单 |
-| MuMu-Replay-Source-20261021.zip | 适配源码与测试 |
+| MuMu-Replay-Runtime-Dependencies-20261022.zip | 所有内置运行依赖的独立备份、许可与逐文件清单 |
+| MuMu-Replay-Source-20261022.zip | 适配源码与测试 |
 | MuMu-Replay-Installation-Guide.pdf | 离线图文手册 |
 | SHA256SUMS.txt | 发布文件的 SHA-256 |
 
-当前构建：`2026.10.21-mumu-dev24`。APK SHA-256：`44f6ea439e2ada3c897a8dfce16d632a0c469272008dd5ff05e44423e47dfb7d`。
+当前构建：`2026.10.21-mumu-dev26`。APK SHA-256：`71872ef4df5fa44d277bca70dcf8114d5081ad670e53aa576affbba7f0118539`。
 
 ### 验证与限制
 

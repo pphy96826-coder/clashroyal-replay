@@ -46,7 +46,8 @@ with zipfile.ZipFile(jar,'w') as z:
     for file in classes.rglob('*.class'):z.write(file,file.relative_to(classes).as_posix())
 dex=out/('dex-'+str(version));dex.mkdir(exist_ok=False)
 run([jdk/'java.exe','-Xmx384m','-cp',sdk/'lib/d8.jar','com.android.tools.r8.D8','--min-api','26','--lib',api,'--output',dex,jar,webkit])
-unsigned=out/'unsigned.apk';run([sdk/'aapt2.exe','link','-o',unsigned,'--manifest',stage/'AndroidManifest.xml','-I',api])
+cache=root/'work/android-mumu-build-cache';cache.mkdir(exist_ok=True)
+unsigned=cache/'unsigned.apk';run([sdk/'aapt2.exe','link','-o',unsigned,'--manifest',stage/'AndroidManifest.xml','-I',api])
 bundle=support/'mumu-development-python.zip';meta=json.loads((support/'development-bundle.json').read_text());assert hashlib.sha256(bundle.read_bytes()).hexdigest()==meta['sha256']
 with zipfile.ZipFile(unsigned,'a') as apk,zipfile.ZipFile(root/'work/android-hotfix10/Android-Replay-20261020-hotfix10.apk') as original:
     for member in original.namelist():
@@ -56,7 +57,7 @@ with zipfile.ZipFile(unsigned,'a') as apk,zipfile.ZipFile(root/'work/android-hot
     apk.writestr('assets/python-runtime.sha256',meta['sha256'])
     for file in dex.glob('classes*.dex'):apk.write(file,file.name,compress_type=zipfile.ZIP_STORED)
     for file in native.glob('*.so'):apk.write(file,'lib/arm64-v8a/'+file.name,compress_type=zipfile.ZIP_DEFLATED)
-aligned=out/'aligned.apk';run([sdk/'zipalign.exe','-f','4',unsigned,aligned])
+aligned=cache/'aligned.apk';run([sdk/'zipalign.exe','-f','4',unsigned,aligned])
 private=out/'private';private.mkdir(exist_ok=True);password=private/'password.txt';key=private/'mumu-development.jks'
 if not password.exists():password.write_text(secrets.token_hex(24),encoding='ascii')
 environment=dict(os.environ,RR_MUMU_SIGNING_PASSWORD=password.read_text(encoding='ascii'))
@@ -66,4 +67,4 @@ run([jdk/'java.exe','-Xmx128m','-jar',sdk/'lib/apksigner.jar','sign','--ks',key,
 run([jdk/'java.exe','-Xmx128m','-jar',sdk/'lib/apksigner.jar','verify','--verbose',apk])
 report=dict(package=package,version=name,version_code=version,sha256=hashlib.sha256(apk.read_bytes()).hexdigest(),bytes=apk.stat().st_size,signature_verified=True,official_sdk_api=32,python_bundle_sha256=meta['sha256'],device_e2e_verified=False,original_app_preserved=True)
 (out/'build-report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
-deliver=root/('outputs/Android原生复现/MuMu回放控制台-20261021-dev'+str(revision)+'.apk');shutil.copyfile(apk,deliver)
+deliver=root/('outputs/Android原生复现/MuMu回放控制台-20261021-dev'+str(revision)+'.apk');os.link(apk,deliver)

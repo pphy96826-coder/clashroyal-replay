@@ -91,6 +91,20 @@ def write_new(path, value):
     with path.open('x') as stream:json.dump(value,stream,ensure_ascii=False,indent=2)
 
 
+def publish_private_receipts(directory,owner):
+    """Transfer owned receipts before announcing a terminal state to the app.
+
+    Debugger subprocesses create root-only files. Announcing completion first
+    races the service's terminal verification and can turn a played match into
+    request_failed. Keep files private; only restore their owning application.
+    """
+    paths=sorted(directory.rglob('*'),reverse=True)
+    if directory.is_symlink() or any(path.is_symlink() for path in paths):
+        raise ValueError('unexpected link in private replay job')
+    for path in paths:os.chown(path,owner.st_uid,owner.st_gid)
+    os.chown(directory,owner.st_uid,owner.st_gid)
+
+
 def game_foreground():
     """A boolean only; never retain other applications' activity contents."""
     result=subprocess.run(['/system/bin/dumpsys','activity','activities'],capture_output=True,timeout=5,env=system_env())
@@ -555,6 +569,9 @@ def run(request_path,destination,prefix):
         value['phase_started_at']=time.time()-(now-phase_started)
         value['phase_seconds']=dict(phase_totals,**{state:phase_totals.get(state,0)+now-phase_started})
         value.update(context);value.update(details)
+        if value.get('monitor_active') is False:
+            publish_private_receipts(destination,owner)
+            value['private_receipts_published']=True
         temp=destination/'status.tmp'
         with temp.open('w') as stream:json.dump(value,stream,ensure_ascii=False,indent=2)
         os.chown(temp,owner.st_uid,owner.st_gid);temp.replace(destination/'status.json')
@@ -705,7 +722,7 @@ def run(request_path,destination,prefix):
             reasons=search_reasons(aligned,read(source))
             side_known=all(all(d['oracle_final_hp'][key]>0 for key in ('princess0','princess1')) for d in read(source)['decks'])
             context.update(seed_search_eligible=bool(reasons),seed_search_reasons=reasons,
-                tower_comparison_basis='per-owner-king-and-ordered-survivors-v1',destroyed_princess_side_verified=side_known)
+                tower_comparison_basis='per-owner-native-spawn-order-and-survivors-v2',destroyed_princess_side_verified=side_known)
             seed_report=dict(search_policy='hunter-play-or-skeleton-king-ability-v1',eligible=bool(reasons),trigger_reasons=reasons,
                 original_seed=original_seed,original_tier=tier if initial_seed==original_seed else None,
                 original_difference=difference if initial_seed==original_seed else None,initial_seed=initial_seed,
@@ -890,7 +907,4 @@ def run(request_path,destination,prefix):
         diagnostic=maps_diagnostics()
         if diagnostic and not (destination/'maps-diagnostic.json').exists():
             write_new(destination/'maps-diagnostic.json',diagnostic)
-        for path in sorted(destination.rglob('*'),reverse=True):
-            if path.is_symlink():raise ValueError('unexpected link in private replay job')
-            os.chown(path,owner.st_uid,owner.st_gid)
-        os.chown(destination,owner.st_uid,owner.st_gid)
+        publish_private_receipts(destination,owner)
