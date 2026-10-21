@@ -13,7 +13,7 @@ def module(name,path):
     value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
 
 SHARED=ROOT.parent/'official-web-replay'
-if not SHARED.is_dir():SHARED=ROOT.parent/'macos/royale-replay-deploy/assets/project/official-web-replay'
+if not SHARED.is_dir():SHARED=ROOT.parent/'windows-adaptation/project/official-web-replay'
 native=module('device_expression_test',ROOT/'device/device_expression.py')
 evaluate=native.evaluate
 explain=module('failure_recovery_test',SHARED/'failure_recovery.py').explanation

@@ -1,6 +1,0 @@
-{
-  "schema": "official-web-replay.timing-overrides.v1",
-  "scope": "all-replays",
-  "default_offset_ticks": 20,
-  "replays": {}
-}

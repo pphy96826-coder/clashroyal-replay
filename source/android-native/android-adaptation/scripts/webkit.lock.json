@@ -1,0 +1,7 @@
+{
+  "version": "1.9.0",
+  "source": "https://dl.google.com/dl/android/maven2/androidx/webkit/webkit/1.9.0/webkit-1.9.0.aar",
+  "license": "Apache-2.0",
+  "aar_sha256": "27bc203135f05b984fc218d5a9c709f0949a19a488615f2349ebdcd9e6f722a2",
+  "classes_sha256": "26500f21419a84819a5fd034c49405c411796fb3716b33c4d300e3e5110f455d"
+}

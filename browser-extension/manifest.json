@@ -1,9 +1,0 @@
-{
-  "manifest_version": 3,
-  "name": "RoyaleAPI → 官服回放",
-  "version": "1.0.0",
-  "description": "点击时读取当前 RoyaleAPI 回放 HTML，发送到本地官服回放控制台。无 Cookie、账号、代理或后台采集权限。",
-  "permissions": ["activeTab", "scripting", "nativeMessaging"],
-  "action": {"default_title": "下载当前 RoyaleAPI 回放并播放", "default_popup": "popup.html"},
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA07CbmyDprUDOLS3Li24f2UqlNwpo3eaFasHiXDAROmENn5zeDedq3Vcn63hZ693B8SoZLFoQMnYMTHkQ86QK/H3iKm6kTVT8m/aG0fxNW+6nneT5ES674h74zB3h1FRj9z0NtlT37a+2xlKCPs0SvX+H8RxYcqAi8C2puHXffjdV5yXSRrKwTWKegJ3CyxkJ+U4QNtRcR/LFtVgSrZwMyfWUacdkkWGvmKbjP4hjGrxJl+r2EDm4AxKJzmTK8y5NGt6gRWnHQyIGoxSirNlJPdWy+HBkf4lBdkMOa3w5JqjfWraBSTyVbiq+1Q/cJGw2meYJAEg44USI6DH39J7QEQIDAQAB"
-}
