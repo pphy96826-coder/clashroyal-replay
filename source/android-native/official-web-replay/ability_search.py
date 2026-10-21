@@ -6,6 +6,12 @@ from source_completion import source_completed,source_failure
 KING_DATA_ID = 35000000
 
 
+def _uid(tower):
+    """Native records print live tower IDs unsigned but destroyed ones signed
+    (Royal Chef 3191249505 == -1103717791); compare them as unsigned 32-bit."""
+    return tower['data_id'] & 0xffffffff
+
+
 def final_tower_rows(source, preparation, report):
     """The one rule for every final-tower comparison (ability check and page tiers).
 
@@ -23,11 +29,14 @@ def final_tower_rows(source, preparation, report):
     for deck in source['decks']:
         owner = deck['proposed_native_owner']
         oracle = deck.get('oracle_final_hp') or {}
-        king_fell = any(t['owner'] == owner and t['data_id'] == KING_DATA_ID and t['hp'] == 0 for t in alive+destroyed)
-        for key, entry in zip(('king', 'princess0', 'princess1'), bindings(preparation)[owner]['spawn_entries']):
+        entries = bindings(preparation)[owner]['spawn_entries']
+        # Tower troops other than King/Princess (e.g. Royal Chef) have their own king ID.
+        king_ids = {KING_DATA_ID, entries[0]['data_id'] & 0xffffffff}
+        king_fell = any(t['owner'] == owner and _uid(t) in king_ids and t['hp'] == 0 for t in alive+destroyed)
+        for key, entry in zip(('king', 'princess0', 'princess1'), entries):
             spot = (owner, entry['data_id'] & 0xffffffff, entry['grid_x']*500)
-            found = [t for t in alive if (t['owner'], t['data_id'], t['x']) == spot]
-            gone = [t for t in destroyed if (t['owner'], t['data_id'], t['x']) == spot]
+            found = [t for t in alive if (t['owner'], _uid(t), t['x']) == spot]
+            gone = [t for t in destroyed if (t['owner'], _uid(t), t['x']) == spot]
             if len(found) == 1: simulated, evidence = found[0]['hp'], 'alive'
             elif not found and gone: simulated, evidence = 0, 'destroyed'
             elif not found and key != 'king' and king_fell: simulated, evidence = 0, 'king_fell'

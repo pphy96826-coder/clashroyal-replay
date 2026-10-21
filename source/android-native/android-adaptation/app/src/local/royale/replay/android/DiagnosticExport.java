@@ -10,7 +10,7 @@ import java.util.zip.*;
 
 /** Bounded, click-scoped export of our own records. No root, game or network API. */
 public final class DiagnosticExport {
-    static final String VERSION="2026.10.21-hotfix34";
+    static final String VERSION="2026.10.21-hotfix37";
     private static final int MAX_FILE=4*1024*1024,MAX_TOTAL=16*1024*1024,MAX_FILES=256;
     private static final Set<String> GLOBAL=new HashSet<String>(Arrays.asList(
         "phone-active.json","phone-service-state.json","local-import-status.json",

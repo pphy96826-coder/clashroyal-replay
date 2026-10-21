@@ -291,3 +291,50 @@ class PrincessOrderTests(unittest.TestCase):
         self.assertTrue(all(r['page_order']=='direct' for r in rows))
         mod,source,report=self.rows({0:(100,50,50),1:(100,50,50)},{0:(100,50,50),1:(100,50,50)})
         self.assertTrue(all(r['page_order']=='direct' for r in mod.final_tower_rows(source,{},report)))
+
+
+class TowerTroopTests(unittest.TestCase):
+    """Royal Chef (08CY0LPY90V0): its towers have their own data IDs."""
+    def test_chef_king_fall_zeroes_its_princess_towers(self):
+        import sys,types,importlib
+        chef=[dict(data_id=1471932914,grid_x=18),dict(data_id=-1103717791,grid_x=7),dict(data_id=-1103717791,grid_x=29)]
+        std=[dict(data_id=35000000,grid_x=18),dict(data_id=35000001,grid_x=7),dict(data_id=35000001,grid_x=29)]
+        tower_profiles=types.ModuleType('tower_profiles');tower_profiles.bindings=lambda p:{0:dict(spawn_entries=std),1:dict(spawn_entries=chef)}
+        sys.modules['tower_profiles']=tower_profiles
+        import ability_search;importlib.reload(ability_search)
+        source=dict(decks=[dict(proposed_native_owner=0,oracle_final_hp=dict(king=7728,princess0=3408,princess1=4275)),
+                           dict(proposed_native_owner=1,oracle_final_hp=dict(king=0,princess0=0,princess1=0))])
+        alive=[dict(owner=0,data_id=35000000,x=9000,hp=7728),dict(owner=0,data_id=35000001,x=3500,hp=3408),dict(owner=0,data_id=35000001,x=14500,hp=4275)]
+        gone=[dict(owner=1,data_id=1471932914,x=9000,hp=0,health_at_destruction=0,native_destructor_observed=True)]
+        report=dict(battle_state=dict(towers=alive,destroyed_towers=gone))
+        rows=ability_search.final_tower_rows(source,{},report)
+        self.assertEqual([(r['owner'],r['tower'],r['simulated'],r['evidence']) for r in rows if r['owner']==1],
+                         [(1,'king',0,'destroyed'),(1,'princess0',0,'king_fell'),(1,'princess1',0,'king_fell')])
+        self.assertTrue(ability_search.terminal_hp_matches(source,{},report))
+
+    def test_native_observers_accept_the_prepared_tower_ids(self):
+        shared=ROOT.parent/'official-web-replay'
+        header=(shared/'source_execution.h').read_text()
+        self.assertEqual(header.count('if(!replay_tower('),2)
+        self.assertNotIn('if(id/1000000!=35)continue;',header)
+        self.assertIn('web_source::expected_tower_ids[o*3+i]=bootstrap_towers[o][i].id;',(shared/'native_bootstrap_probe.cpp').read_text())
+        self.assertIn('web_source::expected_tower_ids[o*3+i]=scene_towers[o][i].id;',(shared/'native_scene_probe.cpp').read_text())
+
+
+class SignedTowerIdTests(unittest.TestCase):
+    def test_destroyed_chef_tower_with_signed_id_is_matched(self):
+        import sys,types,importlib
+        chef=[dict(data_id=1471932914,grid_x=18),dict(data_id=-1103717791,grid_x=7),dict(data_id=-1103717791,grid_x=29)]
+        std=[dict(data_id=35000000,grid_x=18),dict(data_id=35000001,grid_x=7),dict(data_id=35000001,grid_x=29)]
+        tp=types.ModuleType('tower_profiles');tp.bindings=lambda p:{0:dict(spawn_entries=std),1:dict(spawn_entries=chef)}
+        sys.modules['tower_profiles']=tp
+        import ability_search;importlib.reload(ability_search)
+        source=dict(decks=[dict(proposed_native_owner=0,oracle_final_hp=dict(king=7728,princess0=3408,princess1=4275)),
+                           dict(proposed_native_owner=1,oracle_final_hp=dict(king=7549,princess0=2115,princess1=0))])
+        alive=[dict(owner=0,data_id=35000000,x=9000,hp=7728),dict(owner=0,data_id=35000001,x=3500,hp=3408),dict(owner=0,data_id=35000001,x=14500,hp=4275),
+               dict(owner=1,data_id=1471932914,x=9000,hp=7549),dict(owner=1,data_id=3191249505,x=3500,hp=2115)]
+        gone=[dict(owner=1,data_id=-1103717791,x=14500,hp=0,health_at_destruction=0,native_destructor_observed=True)]
+        report=dict(battle_state=dict(towers=alive,destroyed_towers=gone))
+        rows=ability_search.final_tower_rows(source,{},report)
+        self.assertEqual([r['evidence'] for r in rows if r['owner']==1],['alive','alive','destroyed'])
+        self.assertTrue(ability_search.terminal_hp_matches(source,{},report))

@@ -68,6 +68,7 @@ bool bind_source_trace(SceneProbe* p,uintptr_t domain,uintptr_t battle){
     if(!within(queue,0x28)||read<int>(queue+0x14)!=count)return false;
     auto commands=read<uintptr_t>(queue+8);if(!within(commands,count*8))return false;
     web_source::current_ranges=&ranges;
+    for(unsigned o=0;o<2;++o)for(unsigned i=0;i<3;++i)web_source::expected_tower_ids[o*3+i]=scene_towers[o][i].id;
     web_source::Calls calls{p->base,p->services,web_source::bounded_read,stable,p};
     web_source::active_trace=&p->trace;web_source::active_base=p->base;
     bool okay=true;

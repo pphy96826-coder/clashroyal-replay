@@ -144,6 +144,9 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
         if binding['source_execution'] and initialized:
             address=expression(functions['cr_web_source_text_address'],'unsigned long long(*)()')
             size=expression(functions['cr_web_source_text_size'],'unsigned long long(*)()')
+            result['source_text']=dict(address=hex(address),size=size);save()
+            if size==0:raise RuntimeError('native source execution produced no record (size 0)')
+            if size>8<<20:raise RuntimeError('native source execution record size out of range: '+str(size))
             source=json.loads(memory(address,size,limit=8<<20).decode())
             with (directory/(attempt+'-source-execution.json')).open('x') as stream:json.dump(source,stream,indent=2)
             result['private_source_execution_complete']=source_completed(source,binding['source_event_count'])

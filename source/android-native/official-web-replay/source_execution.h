@@ -16,6 +16,16 @@ struct Result {std::string text;int error{},event_index{},tick{},native_code{},e
     std::vector<Dispatch> dispatch;TowerDeathWatch tower_watch[6]{};unsigned tower_watch_count{};};
 struct Calls {uintptr_t base,services;bool(*readable)(uintptr_t,size_t);bool(*stable)(void*);void* context;};
 template<class T> T field(uintptr_t p){T value{};std::memcpy(&value,reinterpret_cast<void*>(p),sizeof(value));return value;}
+// Data IDs of the six towers this replay was prepared with, set by the probe
+// from its generated tower table. King/Princess towers use 35000000/35000001;
+// other tower troops (e.g. Royal Chef) have their own IDs, which the tower
+// observers must also accept or they find fewer than six towers.
+inline unsigned expected_tower_ids[6]{};
+inline bool replay_tower(unsigned id){
+    if(id/1000000==35)return true;
+    for(unsigned value:expected_tower_ids)if(value&&value==id)return true;
+    return false;
+}
 struct ReadRanges {
     struct Range {uintptr_t low,high;};std::vector<Range> ranges;
     bool refresh(){
@@ -52,7 +62,7 @@ inline std::string battle_diagnostics(const Calls& c,uintptr_t d,uintptr_t battl
         if(!c.readable(object,0x210))continue;
         auto definition=field<uintptr_t>(object+0x48);
         if(!c.readable(definition,0x48))continue;
-        unsigned id=field<unsigned>(definition+0x40);if(id/1000000!=35)continue;
+        unsigned id=field<unsigned>(definition+0x40);if(!replay_tower(id))continue;
         int n=field<int>(object+0x24);auto components=field<uintptr_t>(object+0x18);
         if(n<1||n>64||!c.readable(components,n*8))continue;
         for(int j=0;j<n;++j){auto health=field<uintptr_t>(components+j*8);
@@ -98,7 +108,7 @@ inline bool watch_towers(const Calls& c,Result& result,uintptr_t d){
         if(!c.readable(object,0x88))continue;
         auto definition=field<uintptr_t>(object+0x48);
         if(!c.readable(definition,0x44))continue;
-        int id=field<int>(definition+0x40);if(id/1000000!=35)continue;
+        int id=field<int>(definition+0x40);if(!replay_tower(static_cast<unsigned>(id)))continue;
         int n=field<int>(object+0x24);auto components=field<uintptr_t>(object+0x18);
         if(n<1||n>64||!c.readable(components,n*8))return false;
         for(int j=0;j<n;++j){auto health=field<uintptr_t>(components+j*8);
