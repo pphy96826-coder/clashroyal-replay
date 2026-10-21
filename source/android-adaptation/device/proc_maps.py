@@ -9,6 +9,10 @@ import re
 MAX_TEXT=4*1024*1024
 MAX_ROWS=32768
 _REPORTS=[]
+# Reuse only pure parsing of byte-identical complete snapshots. Every caller
+# still opens and reads the live /proc file; PID/start-time checks are unchanged.
+# Keep one bounded entry, never a stale per-process address-space assumption.
+_LAST_SNAPSHOT=None
 
 
 class MapsSnapshotError(ValueError):
@@ -68,24 +72,32 @@ def parse(text,*,excluded=None):
 
 
 def read_snapshot(path):
+    global _LAST_SNAPSHOT
     failures=[]
     for attempt in range(1,4):
         # Read at most the cap plus one character. /proc pseudo-files report
         # zero stat size, so do not use stat size to authorize an unbounded read.
         with path.open('r',encoding='utf-8') as stream:text=stream.read(MAX_TEXT+1)
-        excluded=[]
-        try:
-            rows=parse(text,excluded=excluded)
-        except MapsSnapshotError as exc:
-            failures.append(dict(attempt=attempt,**exc.detail))
-            continue
+        cached=_LAST_SNAPSHOT
+        if cached is not None and text==cached[0]:
+            _,value,row_count,excluded=cached
+        else:
+            excluded=[]
+            try:
+                rows=parse(text,excluded=excluded)
+            except MapsSnapshotError as exc:
+                failures.append(dict(attempt=attempt,**exc.detail))
+                continue
+            row_count=len(rows)
+            value=('\n'.join(row[5] for row in rows)+('\n' if text.endswith('\n') else '')) if excluded else text
+            _LAST_SNAPSHOT=(text,value,row_count,excluded)
         if failures or excluded:
             _remember(dict(recovered=True,attempts=attempt,failures=failures,
-                           excluded_property_records=excluded,complete_ranges=len(rows)))
+                           excluded_property_records=excluded,complete_ranges=row_count))
         # A malformed property record must not reach another parser that might
         # accidentally interpret its suffix as an address. Keep complete rows
         # byte-for-byte; do not sort, infer a missing range, or close a gap.
-        return ('\n'.join(row[5] for row in rows)+('\n' if text.endswith('\n') else '')) if excluded else text
+        return value
     report=dict(recovered=False,attempts=3,failures=failures)
     _remember(report)
     raise MapsSnapshotError('连续3次读取游戏内存映射格式异常；未跳过异常行、未使用异常映射继续操作，请导出诊断',report)

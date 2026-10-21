@@ -27,6 +27,23 @@ final class ConsoleActions {
     // automatic preparation is tried once per row per game process, never in a loop.
     private static final Map<String,String> outcomes=new HashMap<String,String>();
     private static final Map<String,Long> tried=new HashMap<String,Long>();
+    private static volatile boolean importRequested;
+    static void imported(Context context){
+        importRequested=true;
+        try{setAutomatic(context,true);}catch(Exception ignored){}
+        SourcePreparation.schedule(context);autoPrepareLater(context);
+    }
+    static void setAutomatic(Context context,boolean on)throws Exception{
+        MainActivity.write(new File(context.getFilesDir(),"queue-auto-prepare.json"),new JSONObject().put("enabled",on).toString().getBytes(StandardCharsets.UTF_8));
+    }
+    private static boolean automatic(Context context){
+        try{return new JSONObject(MainActivity.text(new File(context.getFilesDir(),"queue-auto-prepare.json"),4096)).optBoolean("enabled",false);}catch(Exception e){return false;}
+    }
+    static boolean autoPreparationAllowed(JSONObject state){
+        String phase=state.optString("state","");
+        if(phase.equals("complete"))return state.optBoolean("client_reopened",false)&&state.optBoolean("generation_released",false)&&!state.optBoolean("monitor_active",true);
+        return !state.optBoolean("generation_released",false)&&!state.optBoolean("terminal_choice_confirmed",false)&&!(phase.equals("complete")||phase.equals("cancelled")||phase.equals("stopped")||phase.equals("failed_recovered")||phase.equals("failed_before_native")||phase.equals("released"));
+    }
     static double speed(){return SPEEDS[speedIndex];}
     static String speedLabel(){return "播放倍速："+SPEEDS[speedIndex]+"×";}
     /** Applies to rows prepared from now on; a row already prepared keeps its speed (shown on the row). */
@@ -89,9 +106,11 @@ final class ConsoleActions {
                 synchronized(ConsoleActions.class){Long before=tried.get(id);if(before!=null&&before==pid)return;}
             }
             JSONObject state=PlaybackStatus.read(context);
+            if(!user&&(!automatic(context)||(!autoPreparationAllowed(state)&&!(importRequested&&state.optString("state","").equals("idle")))))return;
             if(state.optString("state","").equals("complete")){
                 boolean reopened=state.optBoolean("client_reopened",false);
                 if(!user&&!reopened)return; // Only an explicit tap may close a client still showing the terminal.
+                CompletedReplay.remember(context,PlaybackStatus.activeDirectory(context));
                 NativePython.finishCompleted(context,state);
                 if(!reopened)PlaybackService.openGame(context);
             }else if(PlaybackStatus.ownsTask(state)){if(user)throw new IOException("当前任务尚未完成，不覆盖战斗");return;}
@@ -102,6 +121,7 @@ final class ConsoleActions {
             }
             synchronized(ConsoleActions.class){tried.put(id,pid);outcomes.remove(id);}
             byte[] source=ReplayQueue.next(context.getFilesDir());
+            importRequested=false;
             PlaybackService.begin(context,source,speed(),false,ReplayQueue.diagnostic(context.getFilesDir()),id);
         }catch(Exception e){
             if(!id.isEmpty())synchronized(ConsoleActions.class){outcomes.put(id,"未准备："+e.getMessage());}
@@ -155,8 +175,9 @@ final class ConsoleActions {
         boolean complete=state.optString("state","").equals("complete");
         String id=ReplayQueue.add(context.getFilesDir(),source,parsed);
         if((PlaybackService.isBusy()&&!PlaybackService.armedIdle())||(!PlaybackService.isBusy()&&PlaybackStatus.ownsTask(state)&&!complete))
-            return "已加入待播队列（"+parsed.tag+"）；当前回放保持不变。";
+            {imported(context);return "已加入待播队列（"+parsed.tag+"）；当前回放保持不变。";}
         ReplayQueue.moveTo(context.getFilesDir(),id,0);
+        SourcePreparation.schedule(context);
         return playNext(context);
     }
     /**
@@ -165,11 +186,10 @@ final class ConsoleActions {
      * If the next row is already being prepared, "replay" puts the last played match first.
      */
     static String finishReplay(Context context,boolean again,boolean reopenAfterExit)throws Exception{
+        if(!again){setAutomatic(context,false);importRequested=false;CompletedReplay.dismiss(context);}
         if(PlaybackService.armedIdle()){
-            if(!again)return "上一场已结束并释放；无需退出。";
-            JSONObject saved=SavedReplay.metadata(context.getFilesDir());
-            if(saved==null)throw new IOException("没有已保存回放");
-            byte[] source=SavedReplay.load(context.getFilesDir(),saved.getString("sha256"));
+            if(!again)return "已退出上一场；下一场保留为待播，不会自动开播。";
+            byte[] source=CompletedReplay.source(context);
             ReplayQueue.moveTo(context.getFilesDir(),ReplayQueue.add(context.getFilesDir(),source,MainActivity.checkedSource(source)),0);
             return playNext(context);
         }
@@ -187,9 +207,7 @@ final class ConsoleActions {
                 if(again||reopenAfterExit)PlaybackService.openGame(context);
             }else{
                 if(!again||PlaybackStatus.ownsTask(state))throw new IOException("旧任务仍需安全核验，未覆盖游戏现场");
-                JSONObject saved=SavedReplay.metadata(context.getFilesDir());
-                if(saved==null)throw new IOException("没有已保存回放");
-                source=SavedReplay.load(context.getFilesDir(),saved.getString("sha256"));
+                source=CompletedReplay.source(context);
             }
             if(again)PlaybackService.begin(context,source,speed(),true);
             return again?"正在重放；校验通过后自动在游戏里开播。":"已退出回放"+(reopenAfterExit?"，游戏已重新打开。":"。");
@@ -238,9 +256,10 @@ final class ConsoleActions {
                 :match.equals("same_winner")?"⚠ 胜负与网页一致，但被摧毁的塔不同（"+tried+"）。"
                 :match.equals("different")?"⚠ 终局与网页不符（"+tried+"），过程与原局不同。"
                 :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";
-            return new String[]{"下一场已就绪",check+"点「播放下一个」约 15 秒开播；游戏客户端不重启时约 2 小时内有效。"};
+            return new String[]{"下一场已就绪",check+"点「播放下一个」即可在游戏里开播；游戏客户端不重启时约 2 小时内有效。"};
         }
         if(state.optString("message","").contains("随机种子"))return new String[]{"正在匹配随机种子",state.optString("message","")};
+        if(phase.equals("waiting_preparation_lobby"))return new String[]{"等待游戏前台大厅",state.optString("message","")};
         return new String[]{wanted?"准备中 · 完成后自动开播":"正在提前准备下一场",
             (phase.equals("calibrating")?"校准原生发牌":phase.equals("simulating")?"预演整局":phase.equals("validating")?"核对全部指令":"读取资源并等待大厅")+(wanted?"；不用再点。":"；只做准备，不会自动开播。")};
     }
@@ -251,6 +270,29 @@ final class ConsoleActions {
     static String readyLabel(JSONObject state){
         String match=pageMatch(state);
         return match.equals("exact")?"✓ 已就绪":match.equals("same_towers")?"✓ 已就绪·终局近似":match.equals("same_winner")?"⚠ 已就绪·仅胜负同网页":"⚠ 已就绪·与网页不符";
+    }
+    static boolean canAcceptBest(JSONObject state,long now){
+        long age=now-state.optLong("updated_at",0);
+        String phase=state.optString("state","");
+        return (phase.equals("simulating")||phase.equals("waiting_preparation_lobby"))&&state.optBoolean("seed_search_active",false)
+            &&state.optBoolean("best_source_execution_verified",false)&&state.optBoolean("monitor_active",false)
+            &&state.optString("source_sha256","").matches("[a-f0-9]{64}")&&state.optLong("game_pid",0)>0
+            &&!state.optString("game_start_time","").isEmpty()&&age>=0&&age<=300;
+    }
+    static boolean bestRequestPending(Context context){try{return new File(PlaybackStatus.activeDirectory(context),"accept-best-seed.json").isFile();}catch(Exception e){return false;}}
+    static String acceptBest(Context context)throws Exception{
+        if(!PlaybackService.isBusy())throw new IOException("当前没有正在匹配的任务");
+        File directory=PlaybackStatus.activeDirectory(context);
+        JSONObject request=new JSONObject(MainActivity.text(new File(context.getFilesDir(),"phone-service-state.json"),32768));
+        JSONObject state=new JSONObject(MainActivity.text(new File(directory,"status.json"),32768));
+        if(!directory.getAbsolutePath().equals(request.optString("directory",""))||!state.optString("source_sha256","").equals(request.optString("source_sha256","missing"))
+            ||!canAcceptBest(state,System.currentTimeMillis()/1000)||!NativePython.sameGameGeneration(state))throw new IOException("尚无可播放的完整结果，或当前任务已变化");
+        JSONObject signal=new JSONObject().put("schema","royale-replay.accept-best-seed.v1").put("source_sha256",state.getString("source_sha256"))
+            .put("game_pid",state.getLong("game_pid")).put("game_start_time",state.getString("game_start_time")).put("play_best",true).put("created_at",System.currentTimeMillis()/1000);
+        MainActivity.write(new File(directory,"accept-best-seed.json"),signal.toString().getBytes(StandardCharsets.UTF_8));
+        synchronized(ConsoleActions.class){if(PlaybackService.armedIdle())playWhenReady=PlaybackService.armedQueueId();}
+        try{PlaybackService.openGame(context);}catch(Exception e){return "停止请求已保存；请打开游戏大厅，核验后播放当前最优。";}
+        return "已请求停止匹配；当前原生步骤安全结束后，核验并播放已完整执行的最优对局。终局可能与网页不同。";
     }
     /** Short status for each queue row, shown on the right of the row. */
     static Map<String,String> rowStatus(Context context,JSONArray rows){
@@ -267,10 +309,11 @@ final class ConsoleActions {
                 else if(phase.equals("calibrating"))label="准备中·校准发牌";
                 else if(phase.equals("simulating"))label="准备中·预演整局";
                 else if(phase.equals("validating"))label="准备中·核对指令";
+                else if(phase.equals("waiting_preparation_lobby"))label="等待游戏前台大厅";
                 else label="准备中·读取资源";
             }else synchronized(ConsoleActions.class){
                 if(outcomes.containsKey(id))label="未就绪·播放时重新准备";
-                else label=i==0?"等待准备":"排队中";
+                else label=SourcePreparation.stage(id)+(i==0?" · 等待原生准备":" · 等待前一场");
             }
             result.put(id,label);
         }

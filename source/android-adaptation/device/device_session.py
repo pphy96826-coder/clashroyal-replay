@@ -12,6 +12,7 @@ import struct
 import subprocess
 import zipfile
 from proc_maps import parse as parse_maps,read_snapshot
+from mumu_platform import enabled as mumu_enabled,system_env
 
 MASK = 0x00ffffffffffffff
 CONTRACT = json.loads((Path(__file__).parent/'native-contract.json').read_text())
@@ -69,7 +70,7 @@ def bind(apk):
     if os.getuid() != 0:
         raise PermissionError('existing per-app root grant required; no bypass')
     offset = installed_library(apk)
-    value = subprocess.check_output(['/system/bin/pidof', CONTRACT['package']], text=True, timeout=5).strip()
+    value = subprocess.check_output(['/system/bin/pidof', CONTRACT['package']], text=True, timeout=5,env=system_env()).strip()
     if not re.fullmatch(r'[1-9][0-9]{0,6}', value):
         raise ValueError('exactly one installed game process required')
     pid = int(value)
@@ -81,7 +82,10 @@ def bind(apk):
     if 'TracerPid:\t0' not in status.splitlines():
         raise ValueError('existing debugger owns game; no duplicate observation')
     maps = read_snapshot(proc/'maps')
-    rows = [row[5] for row in parse_maps(maps) if row[2]=='r-xp' and row[3]==offset and row[4]==str(apk)]
+    translated=mumu_enabled()
+    if translated and (offset!=0x284d000 or CONTRACT['executable_span']!=0x1b3d000):
+        raise ValueError('audited MuMu game layout differs')
+    rows = [row[5] for row in parse_maps(maps) if row[2]==('r--p' if translated else 'r-xp') and row[3]==offset and row[4]==str(apk)]
     if len(rows) != 1:
         raise ValueError('installed game mapping is absent or ambiguous')
     low, high = (int(x, 16) for x in rows[0].split()[0].split('-'))
@@ -91,6 +95,7 @@ def bind(apk):
                     base=hex(low), executable_end=hex(high), mapping=rows[0],
                     library_sha256=CONTRACT['library_sha256'], jni_exports=CONTRACT['jni_exports'],
                     processing_location='android', desktop_backend_used=False)
+    if translated:identity['native_transport']='mumu-nativebridge-v1'
     session = ReadOnlySession(identity)
     session.verify()
     return identity
@@ -103,6 +108,8 @@ class ReadOnlySession:
                 or identity.get('processing_location') != 'android'):
             raise ValueError('invalid audited resource identity')
         self.identity = identity
+        if identity.get('native_transport')=='mumu-nativebridge-v1' and not mumu_enabled():
+            raise ValueError('MuMu identity on another runtime')
         self.pid = identity['pid']
         if type(self.pid) is not int or not 0 < self.pid < 1 << 22:
             raise ValueError('invalid game PID')
@@ -118,8 +125,10 @@ class ReadOnlySession:
             self.mappings.append((low, high, mode))
         if self.read(self.base, 4) != b'\x7fELF':
             raise ValueError('native ELF header differs')
-        for pin in CONTRACT['jni_exports']:
-            if hashlib.sha256(self.read(self.base+int(pin['va'], 0), pin['size'])).hexdigest() != pin['sha256']:
+        pins=CONTRACT['jni_exports']
+        values=self.read_many([(self.base+int(pin['va'],0),pin['size']) for pin in pins])
+        for pin,raw in zip(pins,values):
+            if hashlib.sha256(raw).hexdigest() != pin['sha256']:
                 raise ValueError('native JNI code differs')
 
     def verify(self):

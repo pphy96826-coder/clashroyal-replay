@@ -10,6 +10,10 @@ from device_loader import LoaderResolutionError, resolve_loader
 from local_assets import generate
 
 
+class SceneSnapshotChanged(ValueError):
+    """A read-only scene observation raced a controller/manager transition."""
+
+
 def scene_state(identity):
     """Read only known controller layouts; a foreground Activity may be loading.
 
@@ -31,9 +35,9 @@ def scene_state(identity):
             state['battle_present']=bool(session.pointer(domain+0xa8)) if domain else False
             state['pending_request']=struct.unpack('<i',session.read(manager+0x3c,4))[0]
             state['auxiliary_present']=bool(session.pointer(manager+0x20))
-        if session.pointer(controller)!=table:raise ValueError('controller changed during observation')
+        if session.pointer(controller)!=table:raise SceneSnapshotChanged('controller changed during observation')
     if not manager or session.pointer(manager+0x28)!=controller or session.pointer(base+0x1d46bd0)!=manager:
-        raise ValueError('scene manager changed during observation')
+        raise SceneSnapshotChanged('scene manager changed during observation')
     session.verify()
     return state
 
@@ -69,7 +73,10 @@ def prepare(identity, destination):
             state['pending_request']=struct.unpack('<i',session.read(manager+0x3c,4))[0]
             state['auxiliary_present']=bool(session.pointer(manager+0x20))
     try:
-        loader,loader_diagnostic=resolve_loader(session,Elf)
+        if identity.get('native_transport')=='mumu-nativebridge-v1':
+            from mumu_runtime import resolve_loader as resolve_mumu_loader
+            loader,loader_diagnostic=resolve_mumu_loader(session)
+        else:loader,loader_diagnostic=resolve_loader(session,Elf)
     except LoaderResolutionError as exc:
         with (destination/'loader-diagnostic.json').open('x') as stream:
             json.dump(exc.diagnostic,stream,indent=2)

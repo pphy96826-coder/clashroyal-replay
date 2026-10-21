@@ -38,7 +38,7 @@ public final class FloatingConsole extends Service {
     private LinearLayout root,panel,queueList;
     private ScrollView queueScroll;
     private TextView bubble,status,detail,noteView,queueTitle;
-    private Button next,speed,stop,clear,offerPlay,replayMatch,exitMatch;
+    private Button next,speed,stop,clear,offerPlay,replayMatch,exitMatch,acceptBest;
     private LinearLayout offerBox,finishRow;
     private TextView offerText;
     private boolean expanded,closed,working;
@@ -124,14 +124,19 @@ public final class FloatingConsole extends Service {
             work(new Job(){public String run()throws Exception{return ConsoleActions.playOffer(FloatingConsole.this,chosen.html);}});}});
         chip(offerRow,"加入队列",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
             final BrowserImport.Snapshot chosen=offer;if(chosen==null)return;offer=null;
-            work(new Job(){public String run()throws Exception{ReplayQueue.add(getFilesDir(),chosen.html,MainActivity.checkedSource(chosen.html));ConsoleActions.autoPrepareLater(getApplicationContext());return "已加入待播队列："+chosen.source.tag+"；会自动提前准备。";}});}});
+            work(new Job(){public String run()throws Exception{ReplayQueue.add(getFilesDir(),chosen.html,MainActivity.checkedSource(chosen.html));ConsoleActions.imported(getApplicationContext());return "已加入待播队列："+chosen.source.tag+"；会自动提前准备。";}});}});
         chip(offerRow,"忽略",0xff3a4558,new View.OnClickListener(){public void onClick(View v){offer=null;note="已忽略 Edge 发送的回放；没有保存或播放。";update();}});
         LinearLayout.LayoutParams offerParams=new LinearLayout.LayoutParams(-1,-2);offerParams.setMargins(0,dp(4),0,dp(4));panel.addView(offerBox,offerParams);
         LinearLayout playback=row();
         next=chip(playback,"播放下一个",0xff177e6c,new View.OnClickListener(){public void onClick(View v){
-            work(new Job(){public String run()throws Exception{return ConsoleActions.playNext(FloatingConsole.this);}});}});
+            work(new Job(){public String run()throws Exception{
+                JSONObject current=PlaybackStatus.read(FloatingConsole.this);
+                if(current.optString("state","").equals("ready_to_open")&&!PlaybackService.armedIdle())return PlaybackService.playPrepared(FloatingConsole.this);
+                return ConsoleActions.playNext(FloatingConsole.this);}});}});
         speed=chip(playback,ConsoleActions.speedLabel(),0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){ConsoleActions.cycleSpeed();update();}});
         LinearLayout stopRow=row();
+        acceptBest=chip(stopRow,"停止匹配，播放当前最优",0xff8a641d,new View.OnClickListener(){public void onClick(View v){
+            work(new Job(){public String run()throws Exception{return ConsoleActions.acceptBest(FloatingConsole.this);}});}});
         stop=chip(stopRow,"停止当前回放",0xff8a3340,new View.OnClickListener(){public void onClick(View v){
             if(System.currentTimeMillis()>stopArmedUntil){stopArmedUntil=System.currentTimeMillis()+4000;update();return;}
             stopArmedUntil=0;work(new Job(){public String run()throws Exception{ConsoleActions.requestStop(FloatingConsole.this);return "已请求停止 · 等待安全边界确认";}});}});
@@ -237,7 +242,9 @@ public final class FloatingConsole extends Service {
                 QueueRows.render(this,queueList,rows,statuses,true,editable,new QueueRows.Listener(){public void changed(String message){note=message;queueShown=null;update();}});
                 queueScroll.setLayoutParams(new LinearLayout.LayoutParams(-1,rows.length()>5?dp(200):-2));
             }
-            QueueRows.enable(next,rows.length()>0&&!working&&ConsoleActions.canPlayNext(state));
+            boolean prepared=phase.equals("ready_to_open")&&PlaybackService.isBusy()&&!PlaybackService.armedIdle();
+            next.setText(prepared?"播放本场回放":PlaybackService.armedIdle()&&!phase.equals("ready_to_open")?"准备完成后播放":"播放下一个");
+            QueueRows.enable(next,!working&&(prepared||(rows.length()>0&&ConsoleActions.canPlayNext(state))));
             BrowserImport.Snapshot pending=offer;
             offerBox.setVisibility(pending==null?View.GONE:View.VISIBLE);
             if(pending!=null){
@@ -246,11 +253,13 @@ public final class FloatingConsole extends Service {
             }
             boolean complete=state.optString("state","").equals("complete");
             // While the next row is prepared ahead, the finished match can still be replayed from its saved copy.
-            boolean replayLast=PlaybackService.armedIdle()&&SavedReplay.metadata(getFilesDir())!=null;
+            boolean replayLast=CompletedReplay.metadata(this)!=null;
             finishRow.setVisibility(complete||replayLast?View.VISIBLE:View.GONE);
-            replayMatch.setText(complete?"重放本场":"重放上一场·需重启游戏");exitMatch.setVisibility(complete?View.VISIBLE:View.GONE);
-            QueueRows.enable(replayMatch,!working&&(replayLast||!PlaybackService.isBusy()));QueueRows.enable(exitMatch,!working&&!PlaybackService.isBusy());
+            replayMatch.setText(complete?"重放本场":"重放上一场");exitMatch.setVisibility(View.VISIBLE);
+            QueueRows.enable(replayMatch,!working&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));QueueRows.enable(exitMatch,!working&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));
             speed.setText(ConsoleActions.speedLabel());QueueRows.enable(speed,!working&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));
+            boolean matching=PlaybackService.isBusy()&&ConsoleActions.canAcceptBest(state,now/1000),bestPending=matching&&ConsoleActions.bestRequestPending(this);
+            acceptBest.setVisibility(matching?View.VISIBLE:View.GONE);acceptBest.setText(bestPending?"已请求：当前步骤结束后播放":"停止匹配，播放当前最优");QueueRows.enable(acceptBest,!working&&!bestPending);
             stop.setVisibility(PlaybackStatus.canStop(state,now/1000)&&!PlaybackService.armedIdle()?View.VISIBLE:View.GONE);
             stop.setText(now<stopArmedUntil?"再点一次确认停止（仅重启游戏客户端）":"停止当前回放");
             clear.setText(now<clearArmedUntil?"再点一次确认清空":"清空队列");QueueRows.enable(clear,rows.length()>0&&editable);

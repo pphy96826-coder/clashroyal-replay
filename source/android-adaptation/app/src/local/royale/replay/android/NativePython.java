@@ -54,37 +54,70 @@ public final class NativePython {
     }
     private static synchronized File ensure(Context context)throws Exception {
         if(installed!=null)return installed;
-        File root=unpack(context,"python-runtime.zip","python-runtime.sha256","python-",64*1024*1024,200*1024*1024L);
+        File root=unpack(context,"python-runtime.zip","python-runtime.sha256","python-",128*1024*1024,384*1024*1024L);
         System.loadLibrary("replay_python");installed=root;return root;
     }
-    public static synchronized JSONObject importSource(Context context,byte[] source)throws Exception {
+    static File sourceRuntime(Context context)throws Exception{return ensure(context);}
+    static JSONObject parseUncached(Context context,byte[] source)throws Exception {
         File root=ensure(context);File jobs=new File(context.getFilesDir(),"local-imports");
         if(!jobs.isDirectory()&&!jobs.mkdir())throw new IOException("cannot create local import area");
         File folder=new File(jobs,UUID.randomUUID().toString());if(!folder.mkdir())throw new IOException("cannot reserve local import identity");
         File input=new File(folder,"input.html"),output=new File(folder,"result");MainActivity.write(input,source);
-        run(root.getAbsolutePath(),input.getAbsolutePath(),output.getAbsolutePath());
+        if(hasNativeRuntime(root)){
+            String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,null))+" "+quoted(runtimeExecutable(context,root).getAbsolutePath())
+                +" import-source "+quoted(root.getAbsolutePath())+" "+quoted(input.getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" -";
+            StandaloneDoctor.Output process=StandaloneDoctor.root(command,90);
+            if(process.code!=0)throw new IOException("完整 HTML 解析失败（"+process.code+"），本场未进入原生准备");
+        }else run(root.getAbsolutePath(),input.getAbsolutePath(),output.getAbsolutePath());
         JSONObject result=new JSONObject(MainActivity.text(new File(output,"result.json"),32768));
         if(!result.optString("source_sha256","").equals(MainActivity.sha(source))||!result.optString("processing_location","").equals("android-embedded-python")||result.optBoolean("desktop_backend_used",true))throw new IOException("phone source result identity differs");
-        MainActivity.write(new File(context.getFilesDir(),"local-import-status.json"),result.toString().getBytes(StandardCharsets.UTF_8));
         result.put("private_source_manifest",new File(output,"source.json").getAbsolutePath());
         return result;
+    }
+    public static JSONObject importSource(Context context,byte[] source)throws Exception{
+        JSONObject cached=SourcePreparation.prepare(context,source);
+        // Only pure source data is reused. Every playback gets a new immutable
+        // parent and fresh process/resource/code pins, simulation and JSON check.
+        File jobs=new File(context.getFilesDir(),"local-imports"),folder=new File(jobs,UUID.randomUUID().toString());
+        if(!folder.mkdir())throw new IOException("cannot reserve fresh source job");
+        File result=new File(folder,"result");if(!result.mkdir())throw new IOException("cannot reserve source result");
+        MainActivity.write(new File(folder,"input.html"),source);
+        File original=new File(cached.getString("private_source_manifest"));
+        MainActivity.write(new File(result,"source.json"),MainActivity.read(new FileInputStream(original),32*1024*1024));
+        JSONObject report=new JSONObject(cached.toString());report.put("private_source_manifest",new File(result,"source.json").getAbsolutePath());
+        MainActivity.write(new File(result,"result.json"),report.toString().getBytes(StandardCharsets.UTF_8));
+        MainActivity.write(new File(context.getFilesDir(),"local-import-status.json"),report.toString().getBytes(StandardCharsets.UTF_8));
+        return report;
     }
     private static String quoted(String path)throws IOException {
         if(path.indexOf('\0')>=0||path.indexOf('\n')>=0)throw new IOException("invalid local task argument");
         return "'"+path.replace("'","'\\''")+"'";
     }
-    public static synchronized JSONObject prepareSource(Context context,byte[] source)throws Exception {
+    private static boolean hasNativeRuntime(File root){return new File(root,"app/mumu-support/runtime/manifest.json").isFile();}
+    private static File runtimeExecutable(Context context,File root)throws Exception{
+        if(hasNativeRuntime(root)){
+            File executable=new File(root,"app/mumu-support/runtime/bin/phone_runtime");
+            if(!executable.isFile()||!executable.canExecute())throw new IOException("native Android runtime unavailable");
+            return executable;
+        }
+        return new File(context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir,"libphone_runtime.so");
+    }
+    private static String runtimeLibraries(Context context,File root,File prefix)throws Exception{
+        if(hasNativeRuntime(root))return new File(root,"app/mumu-support/runtime/lib").getAbsolutePath()+":"+new File(root,"app/mumu-support/compiler/lib").getAbsolutePath();
+        return (prefix==null?"":new File(prefix,"lib").getAbsolutePath()+":")+context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
+    }
+    public static JSONObject prepareSource(Context context,byte[] source)throws Exception {
         File root=ensure(context);
         String apk=context.getPackageManager().getApplicationInfo(StandaloneDoctor.GAME,0).sourceDir;
         if(!StandaloneDoctor.AUDITED_SHA.equals(StandaloneDoctor.libraryHash(new File(apk))))throw new IOException("客户端版本不匹配；未请求原生资源读取");
         JSONObject imported=importSource(context,source);
         File manifest=new File(imported.getString("private_source_manifest"));
         File output=new File(manifest.getParentFile(),"native-preparation");
-        File executable=new File(context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir,"libphone_runtime.so");
+        File executable=runtimeExecutable(context,root);
         if(!executable.isFile())throw new IOException("APK 未包含手机本地准备器");
         // This command can run only our own fixed-purpose packaged executable.
         // It accepts no shell command, Python snippet, network or memory address.
-        String command=quoted(executable.getAbsolutePath())+" prepare "+quoted(root.getAbsolutePath())+" "+quoted(manifest.getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" "+quoted(apk);
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,null))+" "+quoted(executable.getAbsolutePath())+" prepare "+quoted(root.getAbsolutePath())+" "+quoted(manifest.getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" "+quoted(apk);
         StandaloneDoctor.Output process=StandaloneDoctor.root(command,90);
         MainActivity.write(new File(context.getFilesDir(),"local-preparation-process.json"),new JSONObject().put("exit",process.code).put("detail",process.text).toString().getBytes(StandardCharsets.UTF_8));
         if(process.code!=0)throw new IOException("手机本地准备未完成（"+process.code+"）；失败记录已保留，不自动重试");
@@ -100,14 +133,14 @@ public final class NativePython {
         for(String name:new String[]{"clang","clang++","ld.lld","lldb-server"})if(!new File(prefix,"bin/"+name).setExecutable(true,true))throw new IOException("cannot prepare own packaged tool: "+name);
         return prefix;
     }
-    public static synchronized JSONObject buildSource(Context context,byte[] source)throws Exception {
+    public static JSONObject buildSource(Context context,byte[] source)throws Exception {
         File root=ensure(context),prefix=tools(context);
         JSONObject prepared=prepareSource(context,source);
         File directory=new File(prepared.getString("private_preparation_directory"));
         File output=new File(directory,"native-build");
         String lib=context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
-        File executable=new File(lib,"libphone_runtime.so");
-        String command="LD_LIBRARY_PATH="+quoted(new File(prefix,"lib").getAbsolutePath()+":"+lib)+" "+quoted(executable.getAbsolutePath())
+        File executable=runtimeExecutable(context,root);
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,prefix))+" "+quoted(executable.getAbsolutePath())
             +" build-component "+quoted(root.getAbsolutePath())+" "+quoted(new File(directory,"preparation.json").getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
         StandaloneDoctor.Output process=StandaloneDoctor.root(command,90);
         MainActivity.write(new File(directory,"build-process.json"),new JSONObject().put("exit",process.code).put("detail",process.text).toString().getBytes(StandardCharsets.UTF_8));
@@ -124,9 +157,9 @@ public final class NativePython {
         File task=new File(jobs,UUID.randomUUID().toString());if(!task.mkdir())throw new IOException("cannot reserve immutable tool check");
         File output=new File(task,"tools-check");
         String lib=context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
-        File executable=new File(lib,"libphone_runtime.so");
-        String command="LD_LIBRARY_PATH="+quoted(new File(prefix,"lib").getAbsolutePath()+":"+lib)+" "+quoted(executable.getAbsolutePath())
-            +" check-tools "+quoted(root.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" -";
+        File executable=runtimeExecutable(context,root);
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,prefix))+" "+quoted(executable.getAbsolutePath())
+            +(hasNativeRuntime(root)?" check-native-tools ":" check-tools ")+quoted(root.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" -";
         StandaloneDoctor.Output process=StandaloneDoctor.root(command,90);
         MainActivity.write(new File(task,"process.json"),new JSONObject().put("exit",process.code).put("detail",process.text).toString().getBytes(StandardCharsets.UTF_8));
         if(process.code!=0)throw new IOException("手机调试工具自检未通过（"+process.code+"）；未附加游戏，记录已保留");
@@ -135,13 +168,13 @@ public final class NativePython {
         MainActivity.write(new File(context.getFilesDir(),"local-tools-status.json"),report.toString().getBytes(StandardCharsets.UTF_8));
         return report;
     }
-    public static synchronized JSONObject startPlayback(Context context,byte[] source,double speed)throws Exception {
+    public static JSONObject startPlayback(Context context,byte[] source,double speed)throws Exception {
         return startPlayback(context,source,speed,"");
     }
-    public static synchronized JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic)throws Exception {
+    public static JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic)throws Exception {
         return startPlayback(context,source,speed,diagnostic,false);
     }
-    public static synchronized JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic,boolean prepareAhead)throws Exception {
+    public static JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic,boolean prepareAhead)throws Exception {
         if(speed!=.25&&speed!=.5&&speed!=1&&speed!=2&&speed!=4)throw new IOException("无效倍速");
         File active=new File(context.getFilesDir(),"phone-active.json");
         if(active.isFile()&&!PlaybackStatus.launchFailureReleased(context)){
@@ -187,8 +220,8 @@ public final class NativePython {
         JSONObject job=new JSONObject().put("directory",directory.getAbsolutePath()).put("source_sha256",MainActivity.sha(source));
         MainActivity.write(active,job.toString().getBytes(StandardCharsets.UTF_8));
         String lib=context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
-        File executable=new File(lib,"libphone_runtime.so");
-        String command="LD_LIBRARY_PATH="+quoted(new File(prefix,"lib").getAbsolutePath()+":"+lib)+" "+quoted(executable.getAbsolutePath())
+        File executable=runtimeExecutable(context,root);
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,prefix))+" "+quoted(executable.getAbsolutePath())
             +" play "+quoted(root.getAbsolutePath())+" "+quoted(request.getAbsolutePath())+" "+quoted(directory.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
         // Device-local root child, file-backed output, no computer/ADB service.
         // It continues while the native game is foreground; never destroy a
@@ -260,6 +293,8 @@ public final class NativePython {
         MainActivity.write(new File(directory,"process-release.json"),release.toString().getBytes(StandardCharsets.UTF_8));
     }
     static void reconcileReleased(Context context,JSONObject expected)throws Exception{
+        if(expected.optString("state","").equals("complete")&&!expected.optBoolean("monitor_active",true)
+                &&PlaybackStatus.completedVerified(PlaybackStatus.activeDirectory(context),expected))return;
         if(preparationCandidate(expected)){
             File directory=PlaybackStatus.activeDirectory(context);
             if(!PlaybackStatus.preparationReleased(context,directory))releasePreparation(context,directory);
@@ -276,7 +311,7 @@ public final class NativePython {
         File root=ensure(context),prefix=tools(context),action=new File(directory,UUID.randomUUID().toString());
         if(!action.mkdir())throw new IOException("无法保存准备失败的核验记录");
         String lib=context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
-        String command="LD_LIBRARY_PATH="+quoted(new File(prefix,"lib").getAbsolutePath()+":"+lib)+" "+quoted(new File(lib,"libphone_runtime.so").getAbsolutePath())
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,prefix))+" "+quoted(runtimeExecutable(context,root).getAbsolutePath())
             +" release-preparation "+quoted(root.getAbsolutePath())+" "+quoted(directory.getAbsolutePath())+" "+quoted(new File(action,"preparation-release").getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
         StandaloneDoctor.Output result=StandaloneDoctor.root(command,30);
         MainActivity.write(new File(action,"process-output.txt"),result.text.getBytes(StandardCharsets.UTF_8));
@@ -286,25 +321,30 @@ public final class NativePython {
             throw new IOException("准备失败现场未能安全核验（"+result.code+"）："+reason+"；诊断记录保留，未修改游戏");
         }
     }
+    private static void confirmTerminalChoice(File directory,JSONObject state)throws Exception{
+        JSONObject choice=new JSONObject().put("terminal_choice_confirmed",true).put("game_pid",state.getLong("game_pid"))
+            .put("game_start_time",state.getString("game_start_time")).put("source_sha256",state.getString("source_sha256"));
+        MainActivity.write(new File(directory,"terminal-choice.json"),choice.toString().getBytes(StandardCharsets.UTF_8));
+    }
     static synchronized void finishCompleted(Context context,JSONObject expected)throws Exception{
         if(PlaybackService.isBusy())throw new IOException("正在收尾，请稍后再点重放或退出");
         File directory=PlaybackStatus.activeDirectory(context);
         JSONObject state=PlaybackStatus.read(context);
-        if(sceneReleased(directory,state))return;
         if(!state.optString("state","").equals("complete")||!PlaybackStatus.completedVerified(directory,state)
            ||state.optLong("game_pid",0)!=expected.optLong("game_pid",-1)||!state.optString("game_start_time","").equals(expected.optString("game_start_time","missing")))throw new IOException("终局身份已变化，未操作游戏");
-        if(gameGenerationReleased(state)){recordRelease(context,state);return;}
+        if(sceneReleased(directory,state)){confirmTerminalChoice(directory,state);return;}
+        if(gameGenerationReleased(state)){recordRelease(context,state);confirmTerminalChoice(directory,state);return;}
         File root=ensure(context),prefix=tools(context),action=new File(directory,UUID.randomUUID().toString());
         if(!action.mkdir())throw new IOException("无法保存本次退出操作");
         File output=new File(action,"phone-finish");
         String lib=context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
-        String command="LD_LIBRARY_PATH="+quoted(new File(prefix,"lib").getAbsolutePath()+":"+lib)+" "+quoted(new File(lib,"libphone_runtime.so").getAbsolutePath())
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,prefix))+" "+quoted(runtimeExecutable(context,root).getAbsolutePath())
             +" finish "+quoted(root.getAbsolutePath())+" "+quoted(new File(directory,"scene-v1-binding.json").getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
         StandaloneDoctor.Output result=StandaloneDoctor.root(command,45);
         MainActivity.write(new File(action,"process-output.txt"),result.text.getBytes(StandardCharsets.UTF_8));
         if(result.code!=0)throw new IOException("安全退出未完成，已保留现场；不会重复提交（"+result.code+"）");
         if(!gameGenerationReleased(state))throw new IOException("游戏旧进程仍在，未解除占用");
-        recordRelease(context,state);
+        recordRelease(context,state);confirmTerminalChoice(directory,state);
     }
     static boolean sceneReleased(File directory,JSONObject state)throws Exception{
         File proof=new File(directory,"lobby-release.json");if(!proof.isFile())return false;
@@ -322,7 +362,7 @@ public final class NativePython {
         if(!directory.getCanonicalPath().startsWith(new File(context.getFilesDir(),"local-imports").getCanonicalPath()+File.separator))throw new IOException("不属于本控制台");
         File output=new File(directory,"phone-recovery");
         String lib=context.getPackageManager().getApplicationInfo("local.royale.replay.android",0).nativeLibraryDir;
-        String command="LD_LIBRARY_PATH="+quoted(new File(prefix,"lib").getAbsolutePath()+":"+lib)+" "+quoted(new File(lib,"libphone_runtime.so").getAbsolutePath())
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,root,prefix))+" "+quoted(runtimeExecutable(context,root).getAbsolutePath())
             +" recover "+quoted(root.getAbsolutePath())+" "+quoted(new File(directory,"bootstrap-v2-binding.json").getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
         StandaloneDoctor.Output process=StandaloneDoctor.root(command,90);
         if(process.code!=0)throw new IOException("原初始化观察未通过（"+process.code+"），未重复发布；保留现场");

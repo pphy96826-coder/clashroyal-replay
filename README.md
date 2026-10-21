@@ -1,74 +1,50 @@
-# Clash Royale HTML 回放：Android / macOS / Windows
+# Clash Royale 回放 · Windows + MuMu 安卓一体版
 
-## 最新：2026-10-21 Android hotfix11 · 终局与网页比对、随机种子匹配
+Windows 默认部署已更新为 MuMu 内的安卓 APK。控制台和运行依赖直接在安卓实例内执行，可在游戏悬浮窗操作。
 
-[详细更新说明](docs/更新说明-20261021-hotfix11.md) · [非 Root 安卓与 iOS 的播放方法](docs/非Root安卓与iOS播放方案.md)
+[下载新版完整资料](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261021) · [详细图文教程](docs/mumu-android/安装教程.md) · [离线网页版](docs/mumu-android/安装教程.html) · [PDF](docs/mumu-android/MuMu-Replay-Installation-Guide.pdf) · [实机验收范围](docs/mumu-android/验收结果.json)
 
-- 每局准备完都会与 RoyaleAPI 页面的终局六塔比对。之前只在技能目标有歧义时比对，其余对局显示“整局校验通过”其实没有比对。
-- 页面不含随机种子，骷髅帝王召唤等随机技能会让结局与页面不同（例：02CY92YUQPY9 结局相反）。不一致时自动尝试最多 60 个随机种子，选出最接近页面的结果播放，并标明“完全一致 / 终局近似 / 仅胜负相同 / 不符”。实测该局改为与页面相同的 1:0 结局。
-- 源码已推送；本版 APK 暂未发布 Release，目前可下载的最新安卓 APK 是下方 hotfix10。macOS / Windows 不变。
+## 安装
 
-## 2026-10-20 Android hotfix10 · 全程在游戏内操作
+1. 使用 MuMu 6.6.4.0 / Android 12，开启实例 Root 并重启；[MuMu 官方下载](https://mumu.163.com/download/)。
+2. 安装匹配的腾讯客户端 38.4.2，自行登录并进入普通大厅。
+3. 安装 `MuMu-Replay-20261021.apk`，给“MuMu回放控制台 · 测试版”允许 Root 和悬浮窗。
+4. 在模拟器内 Chrome 保存发布包里的 Play Replay 书签，从完整 RoyaleAPI Replay 页面发送回放。
+5. 导入后自动准备，在游戏悬浮窗点“播放下一个”，无需回到完整控制台启动。
 
-[下载 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261020-hotfix10) · [更新说明与验证范围](docs/更新说明-20261020-hotfix10.md)
+APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu 翻译辅助模块。普通使用无需 Windows Python、NDK、桌面桥接服务或旧 Edge 扩展。
 
-- Edge 以系统小窗浮在游戏上，保留你的 Google/RoyaleAPI 登录；「在安卓控制台播放」直接把回放送进悬浮窗，可立即播放 / 加入队列 / 忽略，不再跳到控制台。
-- 队列中的回放一加入就自动提前准备，每行右侧显示状态；已就绪的回放点「播放下一个」约 14 秒开播（原先约 50 秒）。播完在悬浮窗直接重放或退出。
-- 已就绪的回放只能靠重启那一个游戏客户端来取消：删除它要连点两次确认，换播另一场会先重启再开播。macOS / Windows 不变，继续用下方 hotfix3。
+## 本版功能
 
-## 2026-10-20 Android hotfix9 · 游戏内悬浮控制台
+- 导入即排队准备。独立 HTML 解析可在当前播放时进行，最多两个进程，低内存降为一个。
+- 同一个游戏进程里的原生校准、完整模拟和 JSON 核验按顺序执行。
+- 悬浮窗和完整控制台都有“停止匹配，播放当前最优”。等待当前原生步骤安全结束，选择已经完整跑过的最佳对局，核验 JSON 后开播。
+- 随机种子与终局优劣没有单调关系，不使用二分法，也不选择未执行的推测结果。
+- 播完刷新游戏并返回控制台，保留重放／退出；下一场准备时仍可选择上一场。强退游戏后解除占用，不循环自动重播。
+- “终局近似／仅胜负相同／不符”保留实际标签；停止搜索不会被当作精确还原。
 
-[下载 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261020-hotfix9) · [更新说明与验证范围](docs/更新说明-20261020-hotfix9.md)
+## 发布文件
 
-- Android：`2026.10.20-hotfix9`。控制台可作为游戏内悬浮窗显示或隐藏（拖动圆形「回放」按钮，点一下展开或收起）。在悬浮窗和主控制台里都能随时添加、删除、置顶或清空待播队列。覆盖安装即可，不清数据。
-- 同时公开此前未发布的 hotfix4–8 安卓修复：启动失败解锁、帧绑定原生调用、调试器兼容性诊断和严格内存映射解析。这些修复都不代表手机虚拟机已兼容。
-- 本次只更新 Android，macOS / Windows 继续使用下方 hotfix3 的发布包。悬浮窗已在 MuMu Android 12 上实测；从悬浮窗完整播放一局尚未实测。
+| 文件 | 用途 |
+| --- | --- |
+| MuMu-Replay-20261021.apk | 直接安装，全部回放运行依赖已内置 |
+| MuMu-Replay-Offline-20261021.zip | APK、图文教程、Chrome 书签、验收与校验说明 |
+| Tencent-ClashRoyale-38.4.2.apk | 匹配的游戏客户端，不含账号数据；已有该版本可沿用 |
+| MuMu-Replay-Runtime-Dependencies-20261021.zip | 所有内置运行依赖的独立备份、许可与逐文件清单 |
+| MuMu-Replay-Source-20261021.zip | 适配源码与测试 |
+| MuMu-Replay-Installation-Guide.pdf | 离线图文手册 |
+| SHA256SUMS.txt | 发布文件的 SHA-256 |
 
-## 2026-10-19 hotfix3 · 三平台同步
+当前构建：`2026.10.21-mumu-dev21`。APK SHA-256：`70e87ba0c0df247d2bbb3f88fdd928f2d0a3469de78088ede290eff8b588377b`。
 
-[下载本次更新](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261019-hotfix3) · [完整图文教程](docs/全平台安装教程.md) · [离线 HTML](docs/全平台安装教程.html) · [PDF 手册](docs/全平台安装教程.pdf)
+## 验证与限制
 
-- Android：`2026.10.19-hotfix3`，新增不依赖 Root 文件管理器的“导出诊断”；保留路径别名、准备失败解锁及 ELF 系统加载库核验。覆盖安装，不清数据。
-- macOS / Windows：同步“导出诊断…”入口，只读打包最近任务及其引用的组件记录，不启动或重试回放；保留各平台专用连接层，Windows 继续使用 MuMu 翻译运行时。
-- 新发布提供 APK、安卓完整资料、Mac ZIP/Skill、Windows 小更新、统一图文教程与校验和；原 Windows 完整环境继续保留。
-- 教程覆盖 Root 安卓、非 Root 安卓虚拟机验收、电脑部署、手机远程观看和 iOS 模拟研究边界。没有可保证独立播放的 iOS 包，也不保证任意手机虚拟机兼容。
+已在 MuMu 中完整执行并可见播放 141 条指令，原生 JSON 往返通过，终局 tick 6196、塔血差 0。客户端自动重开、回到大厅与实际控制台恢复事件有记录。播放中强退约 3 秒解除占用并回到控制台。新按钮设备结果见随包验收 JSON。
 
-诊断 ZIP 不含原始 HTML、游戏二进制或浏览器 Cookie，但含本机路径、进程信息和解析后的回放记录，只能私下分享。新增导出不代表旧组件占用、牌序分歧或渲染问题均已修复。Windows新版与朋友手机的完整播放仍须分别验收。
+同一实例资料准备阶段 A/B 实测 69.95 秒 → 8.01 秒，这只是一段准备；完整预演和种子匹配仍需时间。新电脑须核验自己的实例，不将本机结果推广为所有安卓虚拟机兼容。
 
-## 2026-10-19 同步更新
+## 旧 Windows 方案
 
-新版三平台资源见 [Releases](https://github.com/pphy96826-coder/clashroyal-replay/releases)。本次同步回放队列、等级支持、技能分支诊断、原生塔血校验与失败恢复。详见 [更新说明与验证范围](docs/更新说明-20261019.md)。
+旧桌面适配已由本方案替换为默认入口。[历史完整环境](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/windows-mumu-20261019) 与 [旧说明](docs/历史部署入口-20261021以前.md) 保留供回退。`source/windows-adaptation/` 保留旧桌面代码和原始验证 C++ 源码，新运行时仍检查原始源码、游戏库完整哈希和代码指纹。
 
-- Android：`source/android-adaptation/` 是控制台源码；APK及内置运行依赖在发布包中，仍需要兼容的现有root调试环境。
-- macOS：`source/macos/royale-replay-deploy/` 为可独立部署的源码Skill，安装到新目录，沿用已有MuMu实例。
-- Windows：保留已验证的MuMu翻译运行时连接层；已有完整环境可用本次小体积更新包，不必重新下载下述旧版3GB环境。关闭控制台后运行更新包的 `Update-Windows.cmd`。
-
-结束后当前采用“核验归属→释放现场→自动重新打开客户端”的兜底方案，**不是免重启返回大厅**。Windows新版尚未在Windows实机验收；不要将源码检查或Mac编译成功等同于实机播放验证。
-
-## Windows 原完整环境（继续保留）
-
-用于在 Windows 与 MuMu Android 12 实例上运行腾讯客户端本地回放，支持 Edge 插件发送 RoyaleAPI 完整回放网页，以及本地 HTML 导入。
-
-## 下载与安装
-
-完整环境包放在本仓库 Releases 中。下载同一版本的 `.zip.001`、`.zip.002`、`.zip.003` 三卷和 `Merge-Environment.cmd`，放在同一文件夹。双击合并程序，等待 SHA-256 校验通过，再完整解压 ZIP。也可以用支持分卷的 7-Zip 打开第一卷进行解压。
-
-1. 阅读 [图文安装教程](docs/安装教程.pdf)，或下载仓库后打开 [离线网页版教程](docs/安装教程.html)。
-2. 完整环境包含 Python、NDK/LLDB、JDK、Android Build-tools、ADB、适配程序、浏览器插件、客户端 APK 及运行时参考。
-3. MuMu 按需从 [官方网站](https://mumu.163.com/download/) 安装；本项目实测 MuMu 6.6.4.0 + Android 12 + 腾讯客户端 38.4.2。
-4. 解压后运行 `00-Install.cmd`，绑定当前实例，检查环境并准备运行时，再连接 Edge 插件。账号由使用者在 MuMu 中自行登录。
-
-## 行为与验证
-
-- 原生回放完成后自动返回控制台，可重新回放或退出，并刷新本工具拥有的客户端。
-- 客户端被强制关闭后，控制台清理播放状态并恢复操作。
-- 37 项源码回归测试通过；完整环境经过逐文件 SHA-256 校验及含中文、空格目录的迁移自检。
-- 新电脑仍须重新绑定实例、校验运行时并完成播放验收。参考运行时不是目标电脑已部署成功的证明。
-
-## 源码与文件说明
-
-`source/windows-adaptation/` 保存适配源码、测试与来源记录；`install/` 是完整环境包的安装向导源码；`browser-extension/` 是 Edge 扩展。仓库源码本身不含大型工具链。请用 Releases 完整环境安装。各组件许可见 [组件来源与许可](docs/组件来源与许可.txt) 和对应组件原有文件。
-
-完整环境 ZIP 的 SHA-256：
-
-`529b5acca37563a4dc193d14e739c2f943552666bada9a70684e3c577798a91c`
+通用 Android 与 macOS 历史资料保留在各自目录。本次重点适配 MuMu x86_64 → ARM64 翻译层；未分发虚拟磁盘、登录信息、私钥或本机调试日志。

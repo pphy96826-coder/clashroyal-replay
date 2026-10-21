@@ -9,7 +9,7 @@ SOURCE=(ROOT/'device/device_playback.py').read_text()
 
 def load(name):
     tree=ast.parse(SOURCE)
-    nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name==name)
+    nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in (name,'seed_plan'))
            or (isinstance(n,ast.Assign) and any(getattr(t,'id','')=='SEED_ATTEMPTS' for t in n.targets))]
     nodes+=[n for n in tree.body if isinstance(n,ast.Assign) and any(getattr(t,'id','')=='PAGE_MATCH_TIERS' for t in n.targets)]
     scope=dict(hashlib=hashlib)
@@ -35,8 +35,10 @@ class SeedSearchTests(unittest.TestCase):
         # Each seed gets its own deal calibration before any source command runs.
         self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,deal,trial_seen)'))
         self.assertLess(block.index('trial=calibrate(trial,deal,trial_seen)'),block.index('search(trial,execute_candidate'))
-        # Only fully executed runs compete; the original seed stays a candidate; an exact match stops the search.
-        self.assertIn("best=(rank(tier,difference),original_seed",block)
+        # The initial run may use a hint, but it still must fully execute. Its
+        # actual seed is retained with its result, while retries include original.
+        self.assertIn("best=(rank(tier,difference),initial_seed",block)
+        self.assertIn('original_seed=source_seed',block)
         self.assertIn("if rank(trial_tier,trial_difference)<best[0]:",block)
         self.assertIn("if best[2]=='exact':break",block)
         self.assertIn("selected_candidate.clear();selected_candidate.update(chosen)",block)
@@ -44,6 +46,14 @@ class SeedSearchTests(unittest.TestCase):
         tail=SOURCE[SOURCE.index("receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']"):]
         self.assertIn("context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=difference",tail)
         self.assertIn("name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else",SOURCE)
+
+    def test_hint_retry_retains_original_without_duplicates_and_stays_bounded(self):
+        plan=load('retry_seed_plan');original=1784463263
+        self.assertEqual(plan('a'*64,original,original),load('seed_plan')('a'*64,original))
+        for initial in (load('seed_plan')('a'*64,original)[0],-2**31):
+            values=plan('a'*64,original,initial)
+            self.assertEqual(values[0],original);self.assertNotIn(initial,values)
+            self.assertEqual(len(values),len(set(values)));self.assertLessEqual(len(values),60)
 
     def test_page_comparison_tiers(self):
         import sys,types

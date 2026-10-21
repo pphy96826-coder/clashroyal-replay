@@ -4,7 +4,7 @@ import ast
 import io
 from pathlib import Path
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('proc_maps_test',ROOT/'device/proc_maps.py')
@@ -14,7 +14,33 @@ PROPERTY='49000 r--s 00000000 00:11 398 /dev/__properties__/u:object_r:log_file_
 
 
 class MapsTests(unittest.TestCase):
-    def setUp(self):maps._REPORTS.clear()
+    def setUp(self):
+        maps._REPORTS.clear();maps._LAST_SNAPSHOT=None
+
+    def test_identical_text_reuses_parsing_but_reads_live_file_each_time(self):
+        path=self.path(GOOD,GOOD)
+        with patch.object(maps,'parse',wraps=maps.parse) as parser:
+            self.assertEqual(maps.read_snapshot(path),GOOD)
+            self.assertEqual(maps.read_snapshot(path),GOOD)
+            self.assertEqual(parser.call_count,1)
+        self.assertEqual(path.open.call_count,2)
+
+    def test_changed_or_invalid_snapshot_never_reuses_old_ranges(self):
+        changed=GOOD.replace('r-xp','---p')
+        path=self.path(GOOD,changed,'junk','junk','junk')
+        self.assertEqual(maps.read_snapshot(path),GOOD)
+        self.assertEqual(maps.read_snapshot(path),changed)
+        with self.assertRaises(maps.MapsSnapshotError):maps.read_snapshot(path)
+        self.assertEqual(path.open.call_count,5)
+
+    def test_cached_snapshot_keeps_property_exclusion_and_retry_diagnostics(self):
+        path=self.path(GOOD+PROPERTY,'junk',GOOD+PROPERTY)
+        self.assertEqual(maps.read_snapshot(path),GOOD)
+        self.assertEqual(maps.read_snapshot(path),GOOD)
+        report=maps.diagnostics()['reports'][-1]
+        self.assertEqual(report['attempts'],2)
+        self.assertEqual(len(report['excluded_property_records']),1)
+        self.assertFalse(report['excluded_property_records'][0]['authorized_range'])
 
     def path(self,*values):
         path=Mock();path.open.side_effect=[io.StringIO(v) if isinstance(v,str) else v for v in values]

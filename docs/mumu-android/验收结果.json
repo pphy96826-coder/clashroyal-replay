@@ -1,0 +1,76 @@
+{
+  "version": "2026.10.21-mumu-dev21",
+  "apk_sha256": "70e87ba0c0df247d2bbb3f88fdd928f2d0a3469de78088ede290eff8b588377b",
+  "full_native_playback": {
+    "build": "2026.10.21-mumu-dev19",
+    "normal_application_no_instrumentation": true,
+    "actual_native_playback_verified": true,
+    "actual_console_resume_event_verified": true,
+    "console_resume_events": [
+      "         1792563074.972  2983  2983 I wm_on_resume_called: [50355478,local.royale.replay.mumu.MainActivity,RESUME_ACTIVITY]"
+    ],
+    "client_reopened": true,
+    "lobby_returned": true,
+    "source_sha256": "ecdd4c03b90b2088230e6bf186e5244b288719441825dd87d42fdaf20e083fac",
+    "retained_events": 141,
+    "source_execution_verified": true,
+    "native_roundtrip_verified": true,
+    "terminal_tick": 6196,
+    "page_match": "exact",
+    "page_hp_difference": 0,
+    "hint_used": true,
+    "preparation_seconds": 91.88035215700074,
+    "full_pipeline_build20_verified": true
+  },
+  "random_seed_early_selection": {
+    "verified": true,
+    "build": "20261021-dev21",
+    "actual_floating_button_clicked": true,
+    "stopped_by_user": true,
+    "safe_boundary_observed": true,
+    "source_commands": 106,
+    "source_sha256": "4f758e02505c3c47cbc718b265668583207109c398c5b6106de80468f0dde6e3",
+    "completed_candidate_attempts": 6,
+    "selected_seed": 1784463263,
+    "selected_tier": "same_winner",
+    "page_hp_difference": 1458,
+    "exact_match": false,
+    "source_execution_verified": true,
+    "native_roundtrip_verified": true,
+    "actual_playing_tick": 1976,
+    "foreground_observation": "After accepting in a browser overlay, the native scene required bringing the game foreground to finish loading.",
+    "full_playback_completed": true,
+    "terminal_tick": 5520,
+    "client_reopened": true,
+    "lobby_returned": true,
+    "monitor_active": false,
+    "actual_console_resume_event_verified": true,
+    "console_resume_events": [
+      "         1792569509.368 22922 22922 I wm_on_resume_called: [139787239,local.royale.replay.mumu.MainActivity,RESUME_ACTIVITY]"
+    ]
+  },
+  "forced_exit_recovery": {
+    "forced_exit_of_verified_playing_generation": true,
+    "state": "released",
+    "monitor_active": false,
+    "actual_console_foreground": true,
+    "seconds": 3.10999999998603,
+    "source_sha256": "64582afd552f4dae915c1849c060e4c4cb5a43e40ce0723c851e80791cf1377c",
+    "replacement_process_stopped": false
+  },
+  "console_device_checks": 60,
+  "seed_selection_unit_checks": 10,
+  "metadata_preparation_ab_seconds": [
+    69.9547,
+    8.0074
+  ],
+  "integrity_checks_bypassed": false,
+  "source_commands_dropped": false,
+  "limitations": [
+    "MuMu 6.6.4.0 / Android 12 / Tencent 38.4.2 tested; other virtual machines require verification.",
+    "Native simulations are serial; independent HTML parsing may overlap playback.",
+    "Seed values have no monotonic result ordering; binary search is not used.",
+    "Early selection waits for a safe boundary and still requires full JSON verification.",
+    "Non-exact results stay labelled non-exact. Client refresh restarts the owned game process."
+  ]
+}

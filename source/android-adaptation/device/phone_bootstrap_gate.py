@@ -26,6 +26,10 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
                 initialization_only=not binding['source_execution'],observation_only=observe_original,
                 desktop_backend_used=False,network_settings_changed=False,online_match_started=False)
     functions={};regions=[]
+    translated_expression=None
+    if identity.get('native_transport')=='mumu-nativebridge-v1':
+        from mumu_expression import NativeExpression
+        translated_expression=NativeExpression(debugger,identity,loader,comp)
     def save():output.write_text(json.dumps(result,indent=2))
     def memory(address,size):
         if not 0<size<=262144:raise ValueError('excessive observation')
@@ -45,11 +49,21 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
         logging=False
         logging_error=''
         try:
-            command=lldb.SBCommandReturnObject()
-            debugger.GetCommandInterpreter().HandleCommand(
-                'log enable -f '+json.dumps(str(log))+' lldb process thread step',command)
-            logging=command.Succeeded()
-            logging_error='' if logging else str(command.GetError())[:500]
+            # Full thread/step logging on every successful MuMu call adds
+            # unnecessary JIT/IO work. Keep result/error evidence and allow an
+            # explicit app-private diagnostic flag on a fresh attempt.
+            verbose=not translated_expression or (directory/'debug-native-calls.json').is_file()
+            if verbose:
+                command=lldb.SBCommandReturnObject()
+                debugger.GetCommandInterpreter().HandleCommand(
+                    'log enable -f '+json.dumps(str(log))+' lldb process thread step',command)
+                logging=command.Succeeded()
+                logging_error='' if logging else str(command.GetError())[:500]
+            evidence['verbose_logging_requested']=bool(verbose)
+            if translated_expression:
+                try:value=translated_expression(address,signature,args,stop_others)
+                finally:evidence.update(translated_expression.evidence)
+                return value
             return evaluate(lldb,target,process,identity['pid'],
                             '((%s)%dULL)(%s)'%(signature,address,args),
                             stop_others=stop_others,evidence=evidence)
@@ -108,6 +122,7 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
             address=module+int(pin['va'],0)
             if hashlib.sha256(memory(address,pin['size'])).hexdigest()!=pin['sha256']:raise RuntimeError('component export differs')
             functions[name]=address
+        if translated_expression:translated_expression.authorize_component(functions)
         if not observe_original:
             public()
             result['publication']=call('start','%sULL,%d,%dULL,%sULL,%sULL'%(identity['base'],identity['pid'],binding['worker_tid'],binding['worker_handle'],binding['services_raw']))
@@ -130,29 +145,54 @@ def run(debugger,directory,attempt,*,observe_original=False,receipt=None):
             debugger.SetAsync(False)
             if not complete or process.GetState()!=lldb.eStateStopped:raise RuntimeError('original task remains pending')
         result['native_calls']=True
-        f=list(struct.unpack('<96Q',memory(call('result_address'),768)));result['fields']=f;save()
+        batch=None
+        if translated_expression and 'cr_web_bootstrap_snapshot_address' in functions:
+            batch=struct.unpack('<4Q',memory(call('snapshot_address'),32))
+            result['native_snapshot_calls_batched']=True
+        f=list(struct.unpack('<96Q',memory(batch[0] if batch else call('result_address'),768)));result['fields']=f;save()
         initialized=(f[:4]==[1,1,1,1] and f[4]==0 and f[6:8]==[1,4] and f[9:16]==[1,2,1,1,1,1,6]
                      and not any(f[80:83]) and f[83]==1 and f[88:94]==[5,0,0,2,4,0])
         clean_deal_failure=(f[:4]==[1,1,1,1] and f[4] in (41,42,43,44) and f[6:8]==[1,4] and f[12:15]==[1,1,1]
                             and not any(f[80:83]) and f[83]==1 and f[88:94]==[5,0,0,2,4,0])
         if not initialized and not clean_deal_failure:raise RuntimeError('native initialization/cleanup did not verify')
-        address=call('towers_address');values=struct.unpack('<48Q',memory(address,384))
+        address=batch[1] if batch else call('towers_address');values=struct.unpack('<48Q',memory(address,384))
         result['initial_towers']=[dict(zip(('owner','data_id','x','y','hp','max_hp','level_index','king'),values[i:i+8])) for i in range(0,48,8)]
         if binding['source_execution'] and initialized:
-            address=expression(functions['cr_web_source_text_address'],'unsigned long long(*)()')
-            size=expression(functions['cr_web_source_text_size'],'unsigned long long(*)()')
+            address=batch[2] if batch else expression(functions['cr_web_source_text_address'],'unsigned long long(*)()')
+            size=batch[3] if batch else expression(functions['cr_web_source_text_size'],'unsigned long long(*)()')
             source=json.loads(memory(address,size).decode())
             with (directory/(attempt+'-source-execution.json')).open('x') as stream:json.dump(source,stream,indent=2)
             result['private_source_execution_complete']=source_completed(source,binding['source_event_count'])
             result['source_commands_generated']=len(source['commands'])
         public()
-        if any(low<=frame.GetPC()<high for thread in process for frame in thread for low,high in regions):raise RuntimeError('component still on a worker stack')
+        # ARM devices must prove no component frames remain before dlclose.
+        # MuMu retains all code until process exit; x86 unwinds cannot prove
+        # translated ARM return-address absence and are not an unload gate.
+        # Completed/destroyed task and native release resource guards above
+        # remain mandatory. No translated code is unloaded in this branch.
+        if not translated_expression and any(low<=frame.GetPC()<high for thread in process for frame in thread for low,high in regions):raise RuntimeError('component still on a worker stack')
         if call('release')!=1:raise RuntimeError('observer release refused')
-        if expression(int(loader['exports']['dlclose']['address'],0),'int(*)(void*)','(void*)'+hex(handle)+'ULL')!=0:raise RuntimeError('loader reference release failed')
-        if comp['device_path'] in ReadOnlySession(identity).verify():raise RuntimeError('component remains mapped')
-        result['component_unloaded']=True;result['source_bootstrap_verified']=initialized
+        if translated_expression:
+            # Keep this idle module's loader reference until the owned client exits.
+            # Houdini may retain translated blocks on other threads after dlclose.
+            # Resources/task are already released above; never report an unload.
+            from mumu_runtime import component_code_ranges
+            component_code_ranges(ReadOnlySession(identity),comp)
+            result.update(observer_released=True,mumu_module_retained_safe=True,
+                module_retained_for_translated_return_safety=True,retained_component_path=comp['device_path'],
+                retained_component_sha256=comp['sha256'],component_retained_idle=True,resource_cleanup_verified=True,
+                retained_code_verified=True,requires_process_exit_for_unload=True,
+                native_transport='mumu-nativebridge-v1')
+        else:
+            if expression(int(loader['exports']['dlclose']['address'],0),'int(*)(void*)','(void*)'+hex(handle)+'ULL')!=0:raise RuntimeError('loader reference release failed')
+            if comp['device_path'] in ReadOnlySession(identity).verify():raise RuntimeError('component remains mapped')
+            result['component_unloaded']=True
+        result['source_bootstrap_verified']=initialized
         if clean_deal_failure:raise RuntimeError('native deal mismatch; private initialization safely released')
-        if binding['source_execution'] and not result['private_source_execution_complete']:raise RuntimeError(source_failure(source))
+        if binding['source_execution'] and not result['private_source_execution_complete']:
+            result.update(source_rejected_after_cleanup=True,source_failure_detail=source_failure(source),
+                source_execution_sha256=hashlib.sha256((directory/(attempt+'-source-execution.json')).read_bytes()).hexdigest())
+            raise RuntimeError(source_failure(source))
     except BaseException as error:
         result['errors'].append(type(error).__name__+': '+str(error))
         result['process_state']=process.GetState()

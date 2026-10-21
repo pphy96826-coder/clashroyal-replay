@@ -19,8 +19,37 @@ public final class ConsoleTests extends Instrumentation {
         proof.getJSONObject("local_driver").put("error",1);if(PlaybackStatus.terminalVerified(proof))throw new AssertionError("failed driver accepted as terminal proof");count++;
         android.app.Notification notification=PlaybackService.progressNotification(getTargetContext(),"测试进度","不发通知、不启动游戏",true);
         if(notification.contentIntent==null||!notification.contentIntent.getCreatorPackage().equals("local.royale.replay.android"))throw new AssertionError("notification has no console return target");count++;
+        JSONObject ended=new JSONObject().put("state","complete").put("monitor_active",false).put("client_reopened",true);
+        if(!PlaybackService.returnsToConsole(ended,true)||PlaybackService.returnsToConsole(ended,false))throw new AssertionError("completion return must require terminal proof even after client refresh");count++;
+        ended.put("state","released");if(PlaybackService.returnsToConsole(ended,false))throw new AssertionError("unproven exit returned console");count++;
+        ended.put("generation_released",true);if(!PlaybackService.returnsToConsole(ended,false))throw new AssertionError("confirmed client exit did not return console");count++;
+        ended.put("monitor_active",true);if(PlaybackService.returnsToConsole(ended,false))throw new AssertionError("active monitor returned prematurely");count++;
+        JSONObject near=new JSONObject().put("page_match","same_towers").put("final_hp_matched",false).put("page_hp_difference",538).put("state","complete");
+        if(!PlaybackHandoff.openingTitle(near).contains("终局近似")||PlaybackHandoff.openingTitle(near).contains("校验通过"))throw new AssertionError("near result labelled exact while opening");count++;
+        if(!PlaybackStatus.detail(near,1001).contains("538"))throw new AssertionError("ending mismatch disappeared at completion");count++;
+        near.put("page_match","different");if(!PlaybackHandoff.openingTitle(near).contains("与网页不符"))throw new AssertionError("different ending hidden while opening");count++;
+        JSONObject done=new JSONObject().put("game_pid",1).put("game_start_time","42").put("source_sha256","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        JSONObject choice=new JSONObject(done.toString()).put("terminal_choice_confirmed",true);
+        if(!PlaybackStatus.terminalChoiceMatches(done,choice))throw new AssertionError("explicit terminal choice ignored");count++;
+        choice.put("game_start_time","43");if(PlaybackStatus.terminalChoiceMatches(done,choice))throw new AssertionError("other generation dismissed completion");count++;
+        choice.put("game_start_time","42").put("source_sha256","cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");if(PlaybackStatus.terminalChoiceMatches(done,choice))throw new AssertionError("other replay dismissed completion");count++;
+        if(ConsoleActions.autoPreparationAllowed(new JSONObject().put("state","complete")))throw new AssertionError("next preparation hid completion choice");count++;
+        if(!ConsoleActions.autoPreparationAllowed(new JSONObject().put("state","complete").put("client_reopened",true).put("generation_released",true).put("monitor_active",false)))throw new AssertionError("verified refreshed completion did not advance queue");count++;
+        if(ConsoleActions.autoPreparationAllowed(new JSONObject().put("state","complete").put("client_reopened",true).put("generation_released",true).put("monitor_active",true)))throw new AssertionError("active terminal advanced queue");count++;
+        if(ConsoleActions.autoPreparationAllowed(new JSONObject().put("state","idle").put("terminal_choice_confirmed",true)))throw new AssertionError("exit auto-started next preparation");count++;
+        if(!ConsoleActions.autoPreparationAllowed(new JSONObject().put("state","idle")))throw new AssertionError("initial queue preparation blocked");count++;
+        if(ConsoleActions.autoPreparationAllowed(new JSONObject().put("state","idle").put("generation_released",true)))throw new AssertionError("client exit auto-started another preparation");count++;
         String hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        JSONObject matching=new JSONObject().put("state","simulating").put("seed_search_active",true).put("best_source_execution_verified",true).put("monitor_active",true)
+            .put("source_sha256",hash).put("game_pid",1).put("game_start_time","42").put("updated_at",1000);
+        if(!ConsoleActions.canAcceptBest(matching,1001))throw new AssertionError("complete best cannot be selected");count++;
+        matching.put("state","waiting_preparation_lobby");if(!ConsoleActions.canAcceptBest(matching,1001))throw new AssertionError("paused matching cannot select its complete best");count++;matching.put("state","simulating");
+        matching.put("best_source_execution_verified",false);if(ConsoleActions.canAcceptBest(matching,1001))throw new AssertionError("partial run selected");count++;
+        matching.put("best_source_execution_verified",true).put("state","playing");if(ConsoleActions.canAcceptBest(matching,1001))throw new AssertionError("playing run interrupted by matching control");count++;
+        matching.put("state","simulating");if(ConsoleActions.canAcceptBest(matching,1400))throw new AssertionError("stale best selected");count++;
         JSONObject started=new JSONObject().put("state","playing").put("source_sha256",hash).put("updated_at",1000).put("standalone_playback_ready",true).put("native_roundtrip_verified",true).put("playback_started",true).put("scene_frames",3).put("scene_initial_tick",10).put("tick",20).put("game_pid",1).put("game_start_time","42");
+        if(PlaybackHandoff.verified(started,hash,1001))throw new AssertionError("missing source proof accepted");count++;
+        started.put("source_execution_verified",true);
         if(!PlaybackHandoff.verified(started,hash,1001))throw new AssertionError("fresh verified play refused");count++;
         for(String phase:new String[]{"queued","loading","waiting_lobby","starting","waiting_foreground","needs_review","complete"}){
             started.put("state",phase);if(PlaybackHandoff.verified(started,hash,1001))throw new AssertionError("premature handoff "+phase);count++;

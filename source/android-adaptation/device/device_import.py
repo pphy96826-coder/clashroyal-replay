@@ -3,10 +3,17 @@ import hashlib
 import json
 from pathlib import Path
 import traceback
+import re
 
 from native_runner.tools.royaleapi_hog_il import parse_royaleapi_replay_html
 from native_runner.royaleapi_replay import resolve_native_card, RoyaleAPIReplayError
 from import_replay import card_ids_from_html, convert
+
+
+def normalize_saved_links(text):
+    # Browser Save Page makes same-site card links absolute. Normalize only
+    # those hrefs for the existing parser; hash and retain original bytes.
+    return re.sub(r'(?i)(\bhref\s*=\s*[\"\'])https://royaleapi\.com(?=/card/)',r'\1',text)
 
 
 def run(source: Path, destination: Path):
@@ -15,7 +22,7 @@ def run(source: Path, destination: Path):
         raw = source.read_bytes()
         if not 0 < len(raw) <= 25*1024*1024:
             raise ValueError('HTML size exceeds bounded input')
-        text = raw.decode('utf-8', errors='strict')
+        text = normalize_saved_links(raw.decode('utf-8', errors='strict'))
         payload = parse_royaleapi_replay_html(text, preserve_all_events=True)
 
         def resolve(key, name):
@@ -27,6 +34,7 @@ def run(source: Path, destination: Path):
                            parser_digest=hashlib.sha256(parser.read_bytes()).hexdigest(),
                            card_ids=card_ids_from_html(text, resolve))
         document['processing_location'] = 'android-embedded-python'
+        document['saved_link_normalization']='royaleapi-https-card-href-only-v1'
         document['desktop_backend_used'] = False
         with (destination/'source.json').open('x', encoding='utf-8') as stream:
             json.dump(document, stream, ensure_ascii=False, indent=2)

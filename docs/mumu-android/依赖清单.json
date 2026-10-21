@@ -1,0 +1,63 @@
+{
+  "schema": "mumu-replay.runtime-dependencies.v1",
+  "apk_sha256": "70e87ba0c0df247d2bbb3f88fdd928f2d0a3469de78088ede290eff8b588377b",
+  "apk_version": "2026.10.21-mumu-dev21",
+  "members": {
+    "assets/synthetic.html": {
+      "bytes": 517,
+      "sha256": "b2c08cdbca6b7db66a7ccf15f6ce8f793e012240a7144a0dadd540952bd44395"
+    },
+    "assets/android-tools.zip": {
+      "bytes": 132775617,
+      "sha256": "fedbd12f81b75e5c2fba4d6497df368a5b130d4577f56126d7ad317ecb264bb3"
+    },
+    "assets/android-tools.sha256": {
+      "bytes": 64,
+      "sha256": "976c4f8bbba18f7a2c0a683e28d8d52939afba96cf2a23c9e704818eb97cbadf"
+    },
+    "assets/python-runtime.zip": {
+      "bytes": 106521467,
+      "sha256": "cee486c3a106a68a58a4d90e4a5ca1b0abaabc3de302691106e9d0b33013c55e"
+    },
+    "assets/python-runtime.sha256": {
+      "bytes": 64,
+      "sha256": "6ce2bfa4a6e241a43693b1c17fc2fae292ef66a1ee8383d547db1ccb30718aea"
+    },
+    "lib/arm64-v8a/libcrypto_python.so": {
+      "bytes": 4544368,
+      "sha256": "e13734377377603cda9c2ea6d6171fc4d639d8a0768050a8a22cdaa3b40f0ece"
+    },
+    "lib/arm64-v8a/libphone_runtime.so": {
+      "bytes": 535488,
+      "sha256": "8640257ff4aca18c302f081e1f95276b8c45a61f162609a7fb12f39ee0b6b211"
+    },
+    "lib/arm64-v8a/libpython3.14.so": {
+      "bytes": 5835936,
+      "sha256": "655816679dcd5e36e48187515c9435ad330688c1b2f2ffb40fc4f1a3f3e17bf4"
+    },
+    "lib/arm64-v8a/libreplay_python.so": {
+      "bytes": 638632,
+      "sha256": "4b34ce58465f928bee202167003b6f76a16226c729a2f14a7cfe1f222fbc3994"
+    },
+    "lib/arm64-v8a/libsqlite3_python.so": {
+      "bytes": 1217120,
+      "sha256": "e8c9c26012244a175013d17188a65300abedb946bd959b5b59fc19b63dfb92b9"
+    },
+    "lib/arm64-v8a/libssl_python.so": {
+      "bytes": 963112,
+      "sha256": "c54e3be0d21c43d908b0891d8c8775785f4045c168d21105b7284f8895383944"
+    }
+  },
+  "versions": {
+    "native_android_python": "3.14.8",
+    "native_android_lldb": "21.1.8",
+    "native_android_clang": "21.1.8"
+  },
+  "install": "All members are already embedded in the APK. This is a backup, not a manual installation script.",
+  "sources": [
+    "https://packages.termux.dev/apt/termux-main/",
+    "https://www.python.org/",
+    "https://llvm.org/"
+  ],
+  "licenses": "Original licenses and package provenance are preserved inside assets/python-runtime.zip and assets/android-tools.zip."
+}

@@ -23,13 +23,19 @@ public final class PlaybackService extends Service {
     private ReplayOverlay overlay;
     private boolean coverShown;
     static boolean isBusy(){return busy;}
+    static boolean returnsToConsole(JSONObject state,boolean terminalVerified){
+        String phase=state.optString("state","");
+        return !state.optBoolean("monitor_active",true)
+            &&((phase.equals("complete")&&terminalVerified)
+                ||(phase.equals("released")&&state.optBoolean("generation_released",false)));
+    }
     // Early preparation of a queue row: runs up to ready_to_open, then waits for
     // the user's play request. Nothing is published to the game before that.
     private static volatile String armedQueueId="",cancelQueueId="";
     private static volatile boolean armedPlaying;
     private static volatile double armedSpeed=1;
     static double armedSpeed(){return armedSpeed;}
-    private static final java.util.Set<String> PRE_SCENE=new java.util.HashSet<String>(java.util.Arrays.asList("queued","preparing","calibrating","simulating","validating","ready_to_open"));
+    private static final java.util.Set<String> PRE_SCENE=new java.util.HashSet<String>(java.util.Arrays.asList("queued","preparing","calibrating","simulating","validating","waiting_preparation_lobby","ready_to_open"));
     /** Queue row prepared ahead and not yet asked to play; empty otherwise. */
     static String armedQueueId(){return armedPlaying?"":armedQueueId;}
     static boolean armedTask(){return busy&&!armedQueueId.isEmpty();}
@@ -41,6 +47,7 @@ public final class PlaybackService extends Service {
         JSONObject state=PlaybackStatus.read(context);
         if(busy||PlaybackStatus.ownsTask(state)){
             String queued=ReplayQueue.add(context.getFilesDir(),source,parsed);
+            ConsoleActions.imported(context);
             // An early-prepared row is not playing yet: the explicit choice replaces it.
             if(armedIdle()){ConsoleActions.moveQueuedToFront(context,queued);ConsoleActions.playNext(context);return true;}
             return false; // Only enqueued: never relabel another match as playing.
@@ -49,7 +56,7 @@ public final class PlaybackService extends Service {
         begin(context,source,speed);return true;
     }
     static synchronized void begin(Context context,byte[] source,double speed)throws Exception{
-        begin(context,source,speed,false);
+        begin(context,source,speed,true);
     }
     static synchronized void begin(Context context,byte[] source,double speed,boolean replayRequested)throws Exception{
         begin(context,source,speed,replayRequested,"");
@@ -75,7 +82,18 @@ public final class PlaybackService extends Service {
     static void openGame(Context context)throws IOException{
         Intent game=context.getPackageManager().getLaunchIntentForPackage(StandaloneDoctor.GAME);
         if(game==null)throw new IOException("未找到已安装的指定客户端");
-        context.startActivity(game);
+        context.startActivity(game.addFlags(0x10000000));
+    }
+    /** User tap in the floating window, bound to the current service request. */
+    static String playPrepared(Context context)throws Exception{
+        PlaybackService service=active;if(service==null||!busy||!service.running)throw new IOException("当前没有待播放任务");
+        JSONObject request=new JSONObject(MainActivity.text(new File(context.getFilesDir(),"phone-service-state.json"),32768));
+        final File directory=PrivateTaskPaths.resolve(context.getFilesDir(),new File(request.getString("directory")),false);
+        final String id=request.getString("request_id"),hash=request.getString("source_sha256");
+        JSONObject state=new JSONObject(MainActivity.text(new File(directory,"status.json"),32768));
+        if(!PlaybackHandoff.readyForForeground(state,hash,System.currentTimeMillis()/1000)||!NativePython.sameGameGeneration(state))throw new IOException("这一场尚未就绪或游戏已重新启动");
+        service.ui.post(new Runnable(){public void run(){try{PlaybackHandoff.serviceForeground(service,id,hash,directory);}catch(Exception e){FloatingConsole.note(service,"未开播："+e.getMessage());}}});
+        return "正在打开已就绪的本场回放。";
     }
     static void coverBeforeGame(String title,String message)throws IOException{
         PlaybackService service=active;
@@ -125,6 +143,15 @@ public final class PlaybackService extends Service {
         final boolean replayRequested=intent!=null&&"yes".equals(intent.getStringExtra("replay_requested"));
         final String diagnostic=intent==null?"":intent.getStringExtra("diagnostic_prefix");
         final String queueId=armedQueueId;
+        if(id!=null&&id.matches("[a-f0-9-]{36}")&&OverlayAccess.allowed(this))try{
+            // Native preparation needs the client foreground, including the
+            // automatically prepared row after a verified client refresh.
+            // Starting this service never publishes a scene: the explicit play
+            // request/source-bound foreground handoff is still required.
+            FloatingConsole.start(this);
+            FloatingConsole.note(this,"正在游戏大厅准备回放；就绪后可在悬浮窗播放。后台 HTML 解析可同时进行。");
+            openGame(this);
+        }catch(Exception e){FloatingConsole.note(this,"请打开游戏并进入大厅，原生准备会等待；队列已保存。");}
         new Thread(new Runnable(){public void run(){String finalTitle="任务已结束",finalMessage="点此返回控制台查看结果。";try{
             if(id==null||!id.matches("[a-f0-9-]{36}"))throw new IOException("缺少明确的本机请求；不恢复或自动重试旧任务");
             byte[] source=MainActivity.read(new FileInputStream(new File(getFilesDir(),"phone-requests/"+id+".html")),ReplaySource.MAX_BYTES);
@@ -153,21 +180,24 @@ public final class PlaybackService extends Service {
                         ui.post(new Runnable(){public void run(){try{PlaybackHandoff.serviceForeground(PlaybackService.this,id,hash,directory);}catch(Exception ignored){/* No scene is published without the signal. */}}});
                     }
                     if(phase.equals("complete")&&PlaybackStatus.completedVerified(status.getParentFile(),state)){
-                        completed=true;returnToConsole=!state.optBoolean("lobby_returned",false)&&!state.optBoolean("client_reopened",false);break;
+                        CompletedReplay.remember(PlaybackService.this,status.getParentFile());
+                        if(NativePython.gameGenerationReleased(state))NativePython.recordRelease(PlaybackService.this,state);
+                        completed=true;returnToConsole=returnsToConsole(state,true);break;
                     }
                     long age=System.currentTimeMillis()/1000-state.optLong("updated_at",0);
+                    if(returnsToConsole(state,false))returnToConsole=true;
+                    if(phase.equals("released")||phase.equals("stopped"))ConsoleActions.setAutomatic(PlaybackService.this,false);
                     if(phase.equals("released")||phase.equals("needs_review")||phase.equals("failed_before_native")||phase.equals("stopped")||phase.equals("cancelled")||phase.equals("scene_left")||phase.equals("monitor_expired")||(!state.optBoolean("monitor_active",true))||age>1800)break;
                 }
                 Thread.sleep(1500);
             }
-            // With the floating console up, Replay/Exit are offered in-game instead of opening the console.
-            if(completed&&FloatingConsole.finished(PlaybackService.this))returnToConsole=false;
+            // Return after the runtime has released its lease; Replay/Exit belong in the visible console.
             if(returnToConsole){
                 // One automatic return for this exact request; never restart or
                 // replay it here. User chooses Replay/Exit in the Activity.
                 final File returned=new File(getFilesDir(),"phone-requests/"+id+"-returned.json");
                 if(!returned.exists()){
-                    MainActivity.write(returned,new JSONObject().put("request_id",id).put("terminal_verified",true).toString().getBytes(StandardCharsets.UTF_8));
+                    MainActivity.write(returned,new JSONObject().put("request_id",id).put("terminal_verified",completed).put("source_sha256",MainActivity.sha(source)).toString().getBytes(StandardCharsets.UTF_8));
                     ui.post(new Runnable(){public void run(){try{startActivity(new Intent(PlaybackService.this,MainActivity.class).addFlags(0x34000000));}catch(Exception ignored){/* Tappable completion notification remains. */}}});
                 }
             }

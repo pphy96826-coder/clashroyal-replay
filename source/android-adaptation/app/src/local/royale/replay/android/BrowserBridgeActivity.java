@@ -20,7 +20,13 @@ public final class BrowserBridgeActivity extends Activity {
         if(!FloatingConsole.running())FloatingConsole.start(this);
         final String link=getIntent().getData()==null?null:getIntent().getData().toString();
         new Thread(new Runnable(){public void run(){
-            try{FloatingConsole.offer(BrowserBridgeActivity.this,BrowserImport.decode(link));}
+            try{
+                BrowserImport.Snapshot snapshot=BrowserImport.decode(link);
+                String id=ReplayQueue.add(getFilesDir(),snapshot.html,snapshot.source);
+                ConsoleActions.imported(BrowserBridgeActivity.this);
+                FloatingConsole.note(BrowserBridgeActivity.this,"已收到回放 "+snapshot.source.tag+"，已自动加入准备队列；在悬浮窗点「播放下一个」即可播放。");
+                runOnUiThread(new Runnable(){public void run(){try{PlaybackService.openGame(BrowserBridgeActivity.this);}catch(Exception e){FloatingConsole.note(BrowserBridgeActivity.this,"回放已保存；打开游戏后可在悬浮窗播放。");}}});
+            }
             catch(Exception e){FloatingConsole.note(BrowserBridgeActivity.this,"未导入 Edge 回放："+e.getMessage()+"；没有播放或保存。");}
             runOnUiThread(new Runnable(){public void run(){finish();}});
         }}).start();

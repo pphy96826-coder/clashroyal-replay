@@ -16,6 +16,7 @@ import zipfile
 from bootstrap_input import render
 from device_session import ReadOnlySession, installed_library, start_time
 from device_tools import compiler_flags, needed
+from mumu_compiler import run as compiler_run
 from elf_contract import Elf
 
 FUNCTIONS=(0x1365bf0,0x1366114,0xabea80,0x1366bb4,0x1470500,0x146f060,0x1052df0,0x1090a7c,
@@ -99,12 +100,19 @@ def run(preparation, destination, prefix, *, run_source=False, native_replay=Non
             '-DWEB_'+kind.upper()+'_INPUT="'+str(build/(kind+'_input.h'))+'"',
             str(root/('native_'+kind+'_probe.cpp')),str(workspace/'offline-queue-runtime/empty_publisher.cpp'),
             str(workspace/'offline-task-prototype/noop_task.cpp'),*static_runtime,'-o',str(binary)]
+        if identity.get('native_transport')=='mumu-nativebridge-v1':
+            from mumu_compile import adapt
+            original=root/('native_'+kind+'_probe.cpp')
+            adapted,extra,evidence=adapt(session,build,original)
+            at=command.index(str(original));command[at:at+1]=[*extra,str(adapted)]
+            with (destination/'mumu-build-contract.json').open('x') as stream:json.dump(evidence,stream,indent=2)
         with (destination/'compile.log').open('x') as log:
-            subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=60)
+            compiler_run(command,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=60)
         wanted={'cr_web_bootstrap_start','cr_web_bootstrap_done_address',
             'cr_web_bootstrap_result_address','cr_web_bootstrap_release','cr_web_source_text_address',
             'cr_web_source_text_size','cr_web_bootstrap_towers_address'}
         if scene:wanted={'cr_web_scene_'+n for n in ('start','cleanup','return_lobby','done_address','result_address','release','trace_address','trace_size')}
+        elif identity.get('native_transport')=='mumu-nativebridge-v1':wanted.add('cr_web_bootstrap_snapshot_address')
         raw=binary.read_bytes();exports=Elf(raw).exports(wanted)
         dependencies=needed(raw)
         if 'libc++_shared.so' in dependencies:raise ValueError('component unexpectedly depends on shared C++ runtime')

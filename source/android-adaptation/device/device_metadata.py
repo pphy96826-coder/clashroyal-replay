@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import runpy
 import sys
+import time
 import traceback
 
 from device_session import bind, ReadOnlySession
@@ -19,13 +20,17 @@ from proc_maps import diagnostics as maps_diagnostics
 
 
 def run(source, output, apk):
+    started=time.monotonic();phase_seconds={}
     output.mkdir(exist_ok=False, mode=0o700)
     try:
         document = json.loads(source.read_text())
         if document['dropped_actions'] or document['unresolved_base_card_ids']:
             raise ValueError('source is incomplete or contains unresolved cards')
+        phase=time.monotonic()
         identity = bind(apk)
+        phase_seconds['bind']=time.monotonic()-phase;phase=time.monotonic()
         runtime = prepare_runtime(identity, output/'runtime')
+        phase_seconds['runtime']=time.monotonic()-phase
         with (output/'observation.json').open('x') as stream:
             json.dump(dict(identity=identity, native_calls=False), stream)
         modules = (
@@ -40,9 +45,11 @@ def run(source, output, apk):
         old = sys.argv
         try:
             for module, arguments in modules:
+                phase=time.monotonic()
                 sys.argv = [module, *arguments]
                 with contextlib.redirect_stdout(io.StringIO()):
                     runpy.run_module(module, run_name='__main__')
+                phase_seconds[module]=time.monotonic()-phase
         finally:
             sys.argv = old
         ReadOnlySession(identity).verify()
@@ -63,6 +70,8 @@ def run(source, output, apk):
         report['installed_map_assets_verified']=runtime['assets']['generated_from_local_apk']
         report['native_worker_bound']=True
         report['local_loader_exports_verified']=True
+        report['phase_seconds']=phase_seconds
+        report['preparation_seconds']=time.monotonic()-started
         with (output/'result.json').open('x') as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2)
         return report

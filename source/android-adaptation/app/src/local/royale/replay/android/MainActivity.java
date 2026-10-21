@@ -19,7 +19,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private final Handler handler=new Handler();
     private TextView status,details,sourceLabel,queueLabel;
-    private Button choose,speedButton,watch,stop,replay,exitReplay,removeReplay,exportDiagnostic,floating;
+    private Button choose,speedButton,watch,stop,replay,exitReplay,removeReplay,exportDiagnostic,floating,acceptBest;
     private LinearLayout queueRows;
     private String queueShown;
     private volatile boolean exportingDiagnostic;
@@ -52,6 +52,9 @@ public final class MainActivity extends Activity {
         speedButton=button(root,ConsoleActions.speedLabel(),new View.OnClickListener(){public void onClick(View v){ConsoleActions.cycleSpeed();speedButton.setText(ConsoleActions.speedLabel());}});
         watch=button(root,"返回游戏观看",new View.OnClickListener(){public void onClick(View v){try{PlaybackService.openGame(MainActivity.this);}catch(Exception e){status.setText(e.getMessage());}}});
         stop=button(root,"停止当前回放",new View.OnClickListener(){public void onClick(View v){confirmStop();}});
+        acceptBest=button(root,"停止匹配，播放当前最优",new View.OnClickListener(){public void onClick(View v){
+            if(finishing)return;finishing=true;
+            new Thread(new Runnable(){public void run(){try{uiNote=ConsoleActions.acceptBest(MainActivity.this);}catch(Exception e){uiNote=e.getMessage();}finally{finishing=false;}}}).start();}});
         replay=button(root,"重放本场",new View.OnClickListener(){public void onClick(View v){finishReplay(true);}});
         exitReplay=button(root,"退出回放",new View.OnClickListener(){public void onClick(View v){finishReplay(false);}});
         removeReplay=button(root,"移除已保存回放",new View.OnClickListener(){public void onClick(View v){confirmRemove();}});
@@ -169,9 +172,12 @@ public final class MainActivity extends Activity {
                 +(active?"\n当前任务："+(saved.optString("sha256","").equals(state.optString("source_sha256",""))?"与已保存回放相同":"另一份 HTML；不会被新文件覆盖"):""));
             watch.setVisibility(active?View.VISIBLE:View.GONE);
             stop.setVisibility(PlaybackStatus.canStop(state,System.currentTimeMillis()/1000)&&!PlaybackService.armedIdle()?View.VISIBLE:View.GONE);
+            boolean matching=PlaybackService.isBusy()&&ConsoleActions.canAcceptBest(state,System.currentTimeMillis()/1000),pendingBest=matching&&ConsoleActions.bestRequestPending(this);
+            acceptBest.setVisibility(matching?View.VISIBLE:View.GONE);acceptBest.setText(pendingBest?"已请求：当前步骤结束后播放":"停止匹配，播放当前最优");acceptBest.setEnabled(!finishing&&!pendingBest);
             replay.setText(complete?"重放本场":"重放已保存回放");
-            replay.setVisibility((complete||saved!=null)?View.VISIBLE:View.GONE);exitReplay.setVisibility(complete?View.VISIBLE:View.GONE);
-            replay.setEnabled(!importing&&!finishing&&(PlaybackService.armedIdle()||(!PlaybackService.isBusy()&&(complete||!active))));exitReplay.setEnabled(!finishing&&!PlaybackService.isBusy());
+            boolean previousComplete=CompletedReplay.metadata(this)!=null;
+            replay.setVisibility((complete||previousComplete||saved!=null)?View.VISIBLE:View.GONE);exitReplay.setVisibility(complete||previousComplete?View.VISIBLE:View.GONE);
+            replay.setEnabled(!importing&&!finishing&&(PlaybackService.armedIdle()||(!PlaybackService.isBusy()&&(complete||!active))));exitReplay.setEnabled(!finishing&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));
             removeReplay.setVisibility(saved!=null?View.VISIBLE:View.GONE);removeReplay.setEnabled(!importing&&!finishing&&!PlaybackService.isBusy());
             choose.setEnabled(!importing&&!finishing&&!PlaybackService.isBusy());
             speedButton.setEnabled(!finishing&&(!PlaybackService.isBusy()||PlaybackService.armedIdle()));
@@ -185,7 +191,7 @@ public final class MainActivity extends Activity {
         new Thread(new Runnable(){public void run(){try{NativePython.reconcileReleased(MainActivity.this,state);reconciliationNote="";}catch(Exception error){reconciliationNote="旧任务核验失败："+error.getMessage()+"；现场保留，未重复提交。";}finally{reconciling=false;}}}).start();
     }
     private void finishReplay(final boolean again){
-        if(finishing||(PlaybackService.isBusy()&&!(again&&PlaybackService.armedIdle())))return;
+        if(finishing||(PlaybackService.isBusy()&&!PlaybackService.armedIdle()))return;
         finishing=true;uiNote=again?"正在安全释放本场回放，随后重新播放…":"正在安全退出回放…";
         new Thread(new Runnable(){public void run(){String note;
             try{ConsoleActions.finishReplay(MainActivity.this,again,false);note="";}catch(Exception e){note="未操作回放："+e.getMessage();}

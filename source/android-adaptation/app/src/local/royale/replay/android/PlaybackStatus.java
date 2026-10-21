@@ -56,9 +56,14 @@ public final class PlaybackStatus {
         // results. PID + start time prevents a stale receipt releasing a new job.
         try{
             JSONObject release=new JSONObject(MainActivity.text(new File(activeDirectory(context),"process-release.json"),8192));
-            if(releaseMatches(state,release))state.put("state","idle").put("monitor_active",false).put("generation_released",true)
-                .put("updated_at",release.optLong("updated_at",state.optLong("updated_at",0))).put("last_request_error","")
-                .put("message","游戏回放进程已结束，控制台已就绪。原始 HTML 和终局记录已保留，可重新选择回放。");
+            if(releaseMatches(state,release)){
+                boolean dismissed=false;
+                try{dismissed=terminalChoiceMatches(state,new JSONObject(MainActivity.text(new File(activeDirectory(context),"terminal-choice.json"),8192)));}catch(IOException ignored){}
+                boolean keepComplete=!state.optBoolean("monitor_active",true)&&completedVerified(activeDirectory(context),state)&&!dismissed;
+                state.put("monitor_active",false).put("generation_released",true).put("terminal_choice_confirmed",dismissed).put("last_request_error","");
+                if(!keepComplete)state.put("state","idle").put("updated_at",release.optLong("updated_at",state.optLong("updated_at",0)))
+                    .put("message","游戏回放进程已结束，控制台已就绪。原始 HTML 和终局记录已保留，可重新选择回放。");
+            }
         }catch(FileNotFoundException ignored){}catch(IOException ignored){}
         if(state.optString("state","").equals("released"))state.put("state","idle");
         try{
@@ -76,6 +81,12 @@ public final class PlaybackStatus {
             &&state.optLong("game_pid",0)==release.optLong("game_pid",-1)
             &&!state.optString("game_start_time","").isEmpty()
             &&state.optString("game_start_time","").equals(release.optString("game_start_time",""));
+    }
+    static boolean terminalChoiceMatches(JSONObject state,JSONObject choice){
+        return choice.optBoolean("terminal_choice_confirmed",false)&&state.optLong("game_pid",0)>0
+            &&state.optLong("game_pid",0)==choice.optLong("game_pid",-1)
+            &&!state.optString("game_start_time","").isEmpty()&&state.optString("game_start_time","").equals(choice.optString("game_start_time",""))
+            &&state.optString("source_sha256","").matches("[a-f0-9]{64}")&&state.optString("source_sha256","").equals(choice.optString("source_sha256",""));
     }
     static boolean preparationReleased(Context context,File directory)throws Exception{
         File proof=new File(directory,"preparation-release.json");if(!proof.isFile())return false;
@@ -130,9 +141,19 @@ public final class PlaybackStatus {
         String message=state.optString("message","选择 HTML 后自动准备并播放；不使用电脑后端。");
         long updated=state.optLong("updated_at",0),age=Math.max(0,now-updated);
         String phase=state.optString("state","");
+        long phaseStart=state.optLong("phase_started_at",0),started=state.optLong("preparation_started_at",0);
+        if(state.optBoolean("monitor_active",false)&&phaseStart>0&&started>0
+            &&(phase.equals("preparing")||phase.equals("calibrating")||phase.equals("simulating")||phase.equals("validating")||phase.equals("loading")))
+            message+="\n本阶段已用 "+Math.max(0,now-phaseStart)+" 秒 · 本次流程已用 "+Math.max(0,now-started)+" 秒";
         if(updated>0)message+="\n状态更新："+(age<3?"刚刚":age+" 秒前");
         if((phase.equals("playing")&&age>15)||((phase.equals("preparing")||phase.equals("calibrating")||phase.equals("simulating")||phase.equals("validating")||phase.equals("loading"))&&age>120))message+="\n状态已过期，不能据此确认仍在正常运行；不会自动重试。";
         if(phase.equals("complete")&&(!state.optBoolean("monitor_active",true)||age>30))message+="\n这是已完成记录；实时观察已结束。点重放可重新播放本场，点退出回放可安全关闭游戏回放进程。";
+        if(phase.equals("complete")&&state.has("page_match")){
+            String match=ConsoleActions.pageMatch(state);
+            if(match.equals("same_towers"))message+="\n终局近似：被摧毁塔楼一致，存活塔血合计相差 "+state.optLong("page_hp_difference",0)+"。";
+            else if(!match.equals("exact"))message+="\n本场终局与网页不完全一致，匹配等级："+match+"。";
+            else if(state.optBoolean("random_seed_inferred",false))message+="\n终局塔血一致；随机种子为推断值。";
+        }
         if(!state.optString("last_request_error","").isEmpty())message+="\n最近操作："+state.optString("last_request_error","");
         if(phase.equals("queued")||phase.equals("preparing"))message+="\n准备阶段留在控制台；整局核验通过后会显示悬浮进度卡并打开游戏。";
         if(phase.equals("ready_to_open")||phase.equals("waiting_lobby")||phase.equals("loading")||phase.equals("starting"))message+="\n悬浮进度卡会陪同加载，确认实际步进后自动收起；此时尚不是播放成功。";

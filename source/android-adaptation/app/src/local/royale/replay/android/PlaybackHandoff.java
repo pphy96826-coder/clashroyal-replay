@@ -33,6 +33,11 @@ final class PlaybackHandoff {
             &&state.optLong("tick",0)>state.optLong("scene_initial_tick",Long.MAX_VALUE)
             &&state.optLong("game_pid",0)>0&&!state.optString("game_start_time","").isEmpty();
     }
+    static String openingTitle(JSONObject state){
+        if(state.optBoolean("diagnostic_only",false))return "未完成诊断预览 · 正在打开";
+        String match=ConsoleActions.pageMatch(state);
+        return (match.equals("exact")?"整局校验通过":match.equals("same_towers")?"终局近似网页":"终局与网页不符")+" · 正在打开战场";
+    }
     private JSONObject request()throws Exception{
         JSONObject value=new JSONObject(MainActivity.text(new File(activity.getFilesDir(),"phone-service-state.json"),32768));
         if(!value.optString("request_id","").matches("[a-f0-9-]{36}")||!value.optString("directory","").equals(PlaybackStatus.activeDirectory(activity).getAbsolutePath()))throw new IOException("not this request");
@@ -51,7 +56,7 @@ final class PlaybackHandoff {
     }
     private void openCovered(JSONObject requested,JSONObject current,File record)throws Exception{
         if(!OverlayAccess.ensure(activity))return;
-        PlaybackService.coverBeforeGame(current.optBoolean("diagnostic_only",false)?"未完成诊断预览 · 正在打开":"整局校验通过 · 正在打开战场","正在让原生客户端前台加载；确认实际开始后自动收起。");
+        PlaybackService.coverBeforeGame(openingTitle(current),"正在让原生客户端前台加载；确认实际开始后自动收起。");
         JSONObject signal=new JSONObject().put("request_id",requested.getString("request_id")).put("source_sha256",requested.getString("source_sha256")).put("user_requested_game_foreground",true).put("overlay_attached",true).put("created_at",System.currentTimeMillis()/1000);
         MainActivity.write(record,signal.toString().getBytes(StandardCharsets.UTF_8));
         MainActivity.write(new File(PlaybackStatus.activeDirectory(activity),"foreground-request.json"),signal.toString().getBytes(StandardCharsets.UTF_8));
@@ -65,7 +70,7 @@ final class PlaybackHandoff {
         File marker=new File(records,id+"-foreground.json");if(marker.exists())return;
         JSONObject current=new JSONObject(MainActivity.text(new File(directory,"status.json"),32768));
         if(!readyForForeground(current,hash,System.currentTimeMillis()/1000)||!OverlayAccess.allowed(context))return;
-        PlaybackService.coverBeforeGame(current.optBoolean("diagnostic_only",false)?"未完成诊断预览 · 正在打开":"整局校验通过 · 正在重放","正在加载本场战场，确认实际步进后收起。");
+        PlaybackService.coverBeforeGame(openingTitle(current),"正在加载本场战场，确认实际步进后收起。");
         JSONObject signal=new JSONObject().put("request_id",id).put("source_sha256",hash).put("user_requested_game_foreground",true).put("overlay_attached",true).put("created_at",System.currentTimeMillis()/1000);
         MainActivity.write(marker,signal.toString().getBytes(StandardCharsets.UTF_8));
         MainActivity.write(new File(directory,"foreground-request.json"),signal.toString().getBytes(StandardCharsets.UTF_8));

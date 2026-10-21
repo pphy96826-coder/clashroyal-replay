@@ -30,7 +30,10 @@ final class ReplayQueue {
     }
     static synchronized byte[] next(File files)throws Exception{
         JSONArray rows=rows(files);if(rows.length()==0)throw new IOException("队列为空");
-        JSONObject first=rows.getJSONObject(0);String id=first.getString("id");
+        return source(files,rows.getJSONObject(0).getString("id"));
+    }
+    static synchronized byte[] source(File files,String id)throws Exception{
+        JSONArray rows=rows(files);JSONObject first=rows.getJSONObject(find(rows,id));
         if(!id.matches("[a-f0-9-]{36}"))throw new IOException("队列标识无效");
         byte[] source=MainActivity.read(new FileInputStream(new File(directory(files),id+".html")),ReplaySource.MAX_BYTES);
         if(!MainActivity.sha(source).equals(first.getString("sha256")))throw new IOException("队列文件校验不符");
@@ -65,7 +68,7 @@ final class ReplayQueue {
                 if(!"content".equals(uri.getScheme()))throw new IOException("仅接受文件选择器授权的HTML");
                 InputStream in=context.getContentResolver().openInputStream(uri);if(in==null)throw new IOException("文件不可读");
                 byte[] source=MainActivity.read(in,ReplaySource.MAX_BYTES);ReplaySource.Info parsed=MainActivity.checkedSource(source);
-                add(context.getFilesDir(),source,parsed);added++;
+                add(context.getFilesDir(),source,parsed);added++;ConsoleActions.imported(context);
             }
         }catch(Exception e){throw new IOException("已加入队列 "+added+" 场；"+e.getMessage());}
         return added;

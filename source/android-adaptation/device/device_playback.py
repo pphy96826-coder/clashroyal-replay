@@ -22,13 +22,15 @@ import uuid
 
 from device_session import ReadOnlySession, start_time, bind
 from device_metadata import run as metadata
-from device_runtime import scene_state
+from device_runtime import scene_state,SceneSnapshotChanged
 from device_build import run as compile_component
 from scene_start_contract import require_idle_lobby
 from timing_policy import apply_offset, GLOBAL_DELAY_TICKS
 from align_native_deal import align,calibrate,deck_fingerprint
 from finalize_replay import finalize
 from proc_maps import MapsSnapshotError,diagnostics as maps_diagnostics
+from mumu_platform import enabled as mumu_enabled,system_env,host_binary
+from seed_search_control import BestRequested,requested as best_requested,choose_trials
 
 
 PREPARE_AHEAD_SECONDS=7200
@@ -85,6 +87,12 @@ def seed_plan(source_sha256, original, count=SEED_ATTEMPTS):
     return seeds
 
 
+def retry_seed_plan(source_sha256,original,initial):
+    """An advisory seed must not hide the original or consume duplicate trials."""
+    seeds=([original] if initial!=original else [])+[seed for seed in seed_plan(source_sha256,original) if seed!=initial]
+    return seeds[:SEED_ATTEMPTS]
+
+
 def read(path):return json.loads(path.read_text())
 
 
@@ -94,7 +102,7 @@ def write_new(path, value):
 
 def game_foreground():
     """A boolean only; never retain other applications' activity contents."""
-    result=subprocess.run(['/system/bin/dumpsys','activity','activities'],capture_output=True,timeout=5)
+    result=subprocess.run(['/system/bin/dumpsys','activity','activities'],capture_output=True,timeout=5,env=system_env())
     if result.returncode or len(result.stdout)>1024*1024:return False
     return any(('topResumedActivity=' in line or 'mResumedActivity:' in line)
                and 'com.tencent.tmgp.supercell.clashroyale/' in line
@@ -112,7 +120,14 @@ def wait_idle_lobby(identity, *, progress, cancellation, timeout=120):
     while time.monotonic()<deadline:
         cancellation()
         # Generation/read errors are not idle states and must fail closed.
-        state=scene_state(identity)
+        try:state=scene_state(identity)
+        except SceneSnapshotChanged:
+            # No pointer/result is accepted. Observe the same generation again
+            # before first publication; ordinary read/identity errors propagate.
+            stable_since=None
+            progress('waiting_lobby','正在切换游戏大厅；等待当前界面稳定，尚未提交回放。')
+            time.sleep(.25)
+            continue
         idle=False
         try:require_idle_lobby(state);idle=True
         except ValueError:pass
@@ -131,8 +146,10 @@ def checked_receipt(receipt, *, scene=False, execute=False):
     if scene:
         if not receipt.get('native_replay_scene_present') or receipt.get('local_driver',{}).get('error'):
             raise RuntimeError('scene still loading; only observe original owner')
-    elif not receipt.get('source_bootstrap_verified') or not receipt.get('component_unloaded'):
-        raise RuntimeError('initialization or cleanup did not complete')
+    else:
+        from mumu_ownership import released_resources
+        if not receipt.get('source_bootstrap_verified') or not (receipt.get('component_unloaded') or released_resources(receipt)):
+            raise RuntimeError('initialization or cleanup did not complete')
     if execute and not scene and not receipt.get('private_source_execution_complete'):
         raise RuntimeError('incomplete source execution; no scene publication')
 
@@ -167,16 +184,28 @@ class EventDebugger:
 
 class Debugger:
     def __init__(self,prefix):
-        sys.path.insert(0,str(prefix/'lib/python3.14/site-packages'))
+        from mumu_platform import native_debugger_runtime
+        runtime=native_debugger_runtime() if mumu_enabled() else None
+        library=runtime/'lib/liblldb.so' if runtime else prefix/'lib/liblldb.so'
+        sys.path.insert(0,str((runtime or prefix)/'lib/python3.14/site-packages'))
         if '_lldb' not in sys.modules:
-            spec=importlib.util.spec_from_file_location('_lldb',str(prefix/'lib/liblldb.so'))
+            spec=importlib.util.spec_from_file_location('_lldb',str(library))
             native=importlib.util.module_from_spec(spec);spec.loader.exec_module(native)
             sys.modules['_lldb']=native;sys.modules['lldb._lldb']=native
         import lldb
         self.lldb=lldb
-        os.environ['LLDB_DEBUGSERVER_PATH']=str(prefix/'bin/lldb-server')
+        self.translated=mumu_enabled()
+        os.environ['LLDB_DEBUGSERVER_PATH']=str(host_binary('lldb-server') if self.translated else prefix/'bin/lldb-server')
         lldb.SBDebugger.Initialize()
         self.debugger=EventDebugger(lldb.SBDebugger.Create(),lldb);self.debugger.SetAsync(False)
+        if self.translated:
+            # Pinned address/byte checks do not depend on remote symbol tables.
+            # Keep module sections and function bounds for reliable unwind;
+            # avoid eagerly fetching entire translated module symbol tables.
+            for command in ('settings set target.memory-module-load-level partial','settings set target.preload-symbols false'):
+                result=lldb.SBCommandReturnObject()
+                self.debugger.GetCommandInterpreter().HandleCommand(command,result)
+                if not result.Succeeded():raise RuntimeError('MuMu debugger configuration failed: '+str(result.GetError()))
 
     def close(self):
         self.debugger.SetAsync(False)
@@ -184,24 +213,33 @@ class Debugger:
         self.lldb.SBDebugger.Terminate()
 
     def run(self,directory,attempt,*,scene=False,action='start',receipt=None,observe_original=False):
+        began=time.monotonic();measure={}
         lldb=self.lldb;binding=read(directory/(attempt+'-binding.json'))
         identity=binding['identity'];session=ReadOnlySession(identity)
         session.verify()
         status=(session.proc/'status').read_text()
         if 'TracerPid:\t0' not in status.splitlines():raise RuntimeError('another debugger owns game')
         # Fresh verification before attaching the exact pinned generation.
-        for pin in binding['pins']:
-            if hashlib.sha256(session.read(int(pin['address'],0),pin['size'])).hexdigest()!=pin['sha256']:
+        pin_values=session.read_many([(int(pin['address'],0),pin['size']) for pin in binding['pins']])
+        for pin,raw in zip(binding['pins'],pin_values):
+            if hashlib.sha256(raw).hexdigest()!=pin['sha256']:
                 raise RuntimeError('code changed before attach')
         target=self.debugger.CreateTarget('/system/bin/app_process64')
+        measure['verify_and_target_seconds']=time.monotonic()-began
         if not target.IsValid():raise RuntimeError('Android target creation failed')
         self.debugger.SetSelectedTarget(target)
-        process=None
+        process=None;attachment=None
         try:
             error=lldb.SBError()
-            process=target.AttachToProcessWithID(self.debugger.GetListener(),identity['pid'],error)
+            if self.translated:
+                from mumu_debugger import Attachment
+                with (directory/(attempt+'-server.log')).open('a') as log:
+                    attachment=Attachment(lldb,target,self.debugger.GetListener(),identity['pid'],log)
+                process=attachment.process
+            else:process=target.AttachToProcessWithID(self.debugger.GetListener(),identity['pid'],error)
             if not error.Success() or not process.IsValid():raise RuntimeError('local game attach failed: '+str(error))
             session.verify()
+            attached=time.monotonic();measure['attach_seconds']=attached-began-measure['verify_and_target_seconds']
             if scene:
                 import run_scene_gate as gate
                 gate.ROOT=directory
@@ -211,6 +249,7 @@ class Debugger:
                 import phone_bootstrap_gate as gate
                 name=receipt or attempt
                 gate.run(self.debugger,directory,attempt,observe_original=observe_original,receipt=receipt)
+            measure['native_gate_seconds']=time.monotonic()-attached
             return read(directory/(name+'-result.json'))
         finally:
             self.debugger.SetAsync(False)
@@ -218,14 +257,19 @@ class Debugger:
                 if process.GetState()==lldb.eStateRunning:process.Stop()
                 if not process.Detach().Success():raise RuntimeError('detach failed; preserve native owner')
             self.debugger.DeleteTarget(target)
+            if attachment:attachment.close()
+            measure['total_seconds']=time.monotonic()-began
+            measure['detach_seconds']=measure['total_seconds']-sum(measure.get(key,0) for key in ('verify_and_target_seconds','attach_seconds','native_gate_seconds'))
+            write_new(directory/((receipt or attempt)+'-debug-timing.json'),measure)
 
 
 def publish_inputs(directory,build,observation,attempt):
     """Only own fresh staging directory, readable by this pinned game's group."""
     binding=read(build/'binding.json');session=ReadOnlySession(binding['identity'])
     maps=session.verify()
-    if any(token in maps for token in ('libphone_replay_','libcr_web_','libcr_private_','libcr_direct_')):
-        raise RuntimeError('previous native component still owns game; never overwrite')
+    from mumu_ownership import retained_paths,assert_component_ownership
+    owned=retained_paths(directory,binding['identity'],session) if binding['identity'].get('native_transport')=='mumu-nativebridge-v1' else set()
+    assert_component_ownership(maps,owned)
     state=(session.proc/'status').read_text().splitlines()
     gid=int(next(line for line in state if line.startswith('Gid:')).split()[1])
     if not 10000<=gid<200000:raise RuntimeError('unexpected game group')
@@ -266,9 +310,17 @@ def generation_released(identity):
         raise ValueError('invalid release identity')
     try:
         return start_time((Path('/proc')/str(pid)/'stat').read_text())!=expected
-    except FileNotFoundError:
+    except (FileNotFoundError,ProcessLookupError):
         # Do not interpret permission errors or malformed /proc data as exit.
         return True
+
+
+def wait_generation_released(identity,timeout=10):
+    deadline=time.monotonic()+timeout
+    while True:
+        if generation_released(identity):return True
+        if time.monotonic()>=deadline:return False
+        time.sleep(.1)
 
 
 def diagnostic_bundle(request, files):
@@ -322,8 +374,13 @@ def stop_owned(identity,scene,component,*,reopen=True):
     current=live_scene(identity);controller=current['controller']
     status=(session.proc/'status').read_text()
     if 'TracerPid:\t0' not in status.splitlines():raise RuntimeError('debugger still owns game; stop refused')
-    rows=[line.split() for line in session.verify().splitlines() if line.split()[-1]==component]
-    if not rows or not any('x' in row[1] for row in rows):raise RuntimeError('owned replay component is absent')
+    rows=[line.split() for line in session.verify().splitlines() if line.split()[-1]==component['device_path']]
+    if identity.get('native_transport')=='mumu-nativebridge-v1':
+        from mumu_runtime import component_code_ranges
+        code_ranges=component_code_ranges(session,component)
+    else:
+        code_ranges=[tuple(int(v,16) for v in row[0].split('-')) for row in rows if 'x' in row[1]]
+    if not code_ranges:raise RuntimeError('owned replay component is absent')
     if controller!=scene['fields'][27]:
         # Native UI may already have returned to its ordinary idle lobby after
         # the completed replay. This is NOT an active/foreign battle. Require
@@ -340,15 +397,14 @@ def stop_owned(identity,scene,component,*,reopen=True):
         cloned=struct.unpack('<128Q',session.read(table,1024))
         slots=(0x68//8,0x78//8)
         if not all(cloned[n]==original[n] for n in range(128) if n not in slots):raise RuntimeError('foreign controller table')
-        if not all(any(int(row[0].split('-')[0],16)<=(cloned[n]&0x00ffffffffffffff)<int(row[0].split('-')[1],16)
-                       and 'x' in row[1] for row in rows) for n in slots):raise RuntimeError('foreign replay callbacks')
+        if not all(any(low<=(cloned[n]&0x00ffffffffffffff)<high for low,high in code_ranges) for n in slots):raise RuntimeError('foreign replay callbacks')
         if struct.unpack('<i',session.read(controller+0x58,4))[0]!=1 or struct.unpack('<i',session.read(current['domain']+0x20,4))[0]!=4:
             raise RuntimeError('not the local replay domain')
     session.verify()
     package='com.tencent.tmgp.supercell.clashroyale'
-    subprocess.run(['/system/bin/am','force-stop',package],check=True,timeout=15,capture_output=True)
+    subprocess.run(['/system/bin/am','force-stop',package],check=True,timeout=15,capture_output=True,env=system_env())
     if reopen:
-        subprocess.run(['/system/bin/am','start','-n',package+'/com.supercell.titan.tencent.GameAppTencent'],check=True,timeout=20,capture_output=True)
+        subprocess.run(['/system/bin/am','start','-n',package+'/com.supercell.titan.tencent.GameAppTencent'],check=True,timeout=20,capture_output=True,env=system_env())
     for _ in range(50):
         if generation_released(identity):return
         time.sleep(.1)
@@ -363,10 +419,10 @@ def recover_failed_attempt(directory,attempt,identity):
         raise RuntimeError('失败现场代际不一致或调试器未退出；未自动关闭游戏')
     if generation_released(identity):return 'already_released'
     if result.get('component_unloaded'):return 'already_clean'
-    component=read(directory/(attempt+'-component.json'))['device_path']
+    component=read(directory/(attempt+'-component.json'))
     session=ReadOnlySession(identity)
     maps=session.verify()
-    rows=[row.split() for row in maps.splitlines() if len(row.split())>=6 and row.split()[-1]==component]
+    rows=[row.split() for row in maps.splitlines() if len(row.split())>=6 and row.split()[-1]==component['device_path']]
     if not rows:
         from device_expression import rejected_before_load
         if rejected_before_load(result):
@@ -377,7 +433,10 @@ def recover_failed_attempt(directory,attempt,identity):
                 raise RuntimeError('debugger still attached; release refused')
             session.verify()
             return 'already_clean'
-    if not rows or not any('x' in row[1] for row in rows):raise RuntimeError('无法确认失败组件归属')
+    if identity.get('native_transport')=='mumu-nativebridge-v1':
+        from mumu_runtime import component_code_ranges
+        component_code_ranges(session,component)
+    elif not rows or not any('x' in row[1] for row in rows):raise RuntimeError('无法确认失败组件归属')
     manager=session.raw_pointer(session.base+0x1d46bd0)
     if binding.get('scene') and manager:
         stop_owned(identity,result,component)
@@ -391,9 +450,9 @@ def recover_failed_attempt(directory,attempt,identity):
             raise RuntimeError('仍有调试器占用，未关闭客户端')
         session.verify()
         package='com.tencent.tmgp.supercell.clashroyale'
-        subprocess.run(['/system/bin/am','force-stop',package],check=True,timeout=15,capture_output=True)
-        if not generation_released(identity):raise RuntimeError('未确认旧进程已释放')
-        subprocess.run(['/system/bin/am','start','-n',package+'/com.supercell.titan.tencent.GameAppTencent'],check=True,timeout=20,capture_output=True)
+        subprocess.run(['/system/bin/am','force-stop',package],check=True,timeout=15,capture_output=True,env=system_env())
+        if not wait_generation_released(identity):raise RuntimeError('未确认旧进程已释放')
+        subprocess.run(['/system/bin/am','start','-n',package+'/com.supercell.titan.tencent.GameAppTencent'],check=True,timeout=20,capture_output=True,env=system_env())
     return 'restarted'
 
 
@@ -424,7 +483,7 @@ def finish_completed(binding_path,destination,prefix):
                 # The first submission may still refer to a loading/lobby controller.
                 # Bind cleanup to the verified TERMINAL observation, never to
                 # that provisional publication receipt or a guessed controller.
-                stop_owned(identity,terminal,read(directory/'scene-v1-component.json')['device_path'],reopen=False)
+                stop_owned(identity,terminal,read(directory/'scene-v1-component.json'),reopen=False)
             result=dict(game_pid=identity['pid'],game_start_time=identity['process_start_time'],
                         generation_released=True,monitor_active=False,source_sha256=active['source_sha256'])
             write_new(destination/'result.json',result)
@@ -490,10 +549,20 @@ def run(request_path,destination,prefix):
     owner=request_path.parent.stat();os.chown(destination,owner.st_uid,owner.st_gid)
     files=next(p for p in destination.parents if p.name=='files')
     context=dict(monitor_active=True,runner_pid=os.getpid(),native_entry_started=False)
+    started=time.monotonic();phase_started=started;phase_name=None;phase_totals={}
     def status(state,message,**details):
+        nonlocal phase_started,phase_name
+        now=time.monotonic()
+        if state!=phase_name:
+            if phase_name is not None:phase_totals[phase_name]=phase_totals.get(phase_name,0)+now-phase_started
+            phase_name=state;phase_started=now
         value=dict(schema='royale-replay.phone-playback.v1',state=state,message=message,
                    processing_location='android',desktop_backend_used=False,network_settings_changed=False,
                    game_apk_changed=False,updated_at=time.time())
+        value['elapsed_seconds']=now-started
+        value['preparation_started_at']=time.time()-(now-started)
+        value['phase_started_at']=time.time()-(now-phase_started)
+        value['phase_seconds']=dict(phase_totals,**{state:phase_totals.get(state,0)+now-phase_started})
         value.update(context);value.update(details)
         temp=destination/'status.tmp'
         with temp.open('w') as stream:json.dump(value,stream,ensure_ascii=False,indent=2)
@@ -536,7 +605,12 @@ def run(request_path,destination,prefix):
         require_idle_lobby(observation['scene_state'])
         identity=observation['identity']
         context['game_pid']=identity['pid'];context['game_start_time']=identity['process_start_time']
-        shifted=apply_offset(read(preparation/'preparation.json'),GLOBAL_DELAY_TICKS)
+        hint_initial=apply_offset(read(preparation/'preparation.json'),GLOBAL_DELAY_TICKS)
+        from preparation_hint import load as load_hint,save as save_hint
+        shifted,hint_detail=load_hint(files,hint_initial)
+        source_seed=hint_initial['initialization_only']['rndSeed']
+        context['preparation_hint_used']=hint_detail['used']
+        write_new(destination/'preparation-hint.json',hint_detail)
         prep=preparation/'preparation-delayed.json';write_new(prep,shifted)
         debugger=Debugger(prefix)
         def cancellation():
@@ -546,13 +620,32 @@ def run(request_path,destination,prefix):
             # Prepare/bind immediately before every component; never migrate old
             # input owners if the client has restarted in the meantime.
             cancellation();ReadOnlySession(identity).verify()
+            if context.get('seed_search_active'):
+                if best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity):raise BestRequested()
+                status('simulating','匹配随机种子 '+str(context.get('seed_trial_number',0))+'/'+str(SEED_ATTEMPTS)+'；'+('完整预演候选对局' if execute else '核验初始牌序')+'。可停止匹配并播放已完整执行的最优结果。')
+            if not game_foreground():
+                # Android can evict lobby resources when a full-screen browser
+                # covers the client. Pure HTML workers may keep running; native
+                # publication waits for the same client's stable foreground.
+                status('waiting_preparation_lobby','后台 HTML 解析继续；原生准备已暂停，等待游戏回到前台大厅。')
+                wait_idle_lobby(identity,progress=lambda _phase,message:status('waiting_preparation_lobby',message),cancellation=cancellation)
+            if context.get('seed_search_active') and best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity):raise BestRequested()
+            compile_started=time.monotonic()
             build=destination/(name+'-build')
             compile_component(prep,build,prefix,run_source=execute,native_replay=native,scene=scene,speed=speed)
+            compiled_at=time.monotonic()
+            if not game_foreground():
+                status('waiting_preparation_lobby','组件已编译；等待游戏回到前台大厅，再执行本场原生校验。')
+                wait_idle_lobby(identity,progress=lambda _phase,message:status('waiting_preparation_lobby',message),cancellation=cancellation)
+            if context.get('seed_search_active') and best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity):raise BestRequested()
             publish_inputs(destination,build,preparation/'runtime',name)
+            published_at=time.monotonic()
             if not context['native_entry_started']:
                 write_new(destination/'native-entry.json',dict(native_entry_started=True,created_at=time.time()))
                 context['native_entry_started']=True
             result=debugger.run(destination,name,scene=scene)
+            write_new(destination/(name+'-timing.json'),dict(compile_and_bind_seconds=compiled_at-compile_started,
+                publish_and_ownership_seconds=published_at-compiled_at,debugger_and_native_seconds=time.monotonic()-published_at))
             last_attempt=name
             if scene and not result.get('errors') and result.get('detached') and not result.get('native_replay_scene_present'):
                 if result.get('fields',[0]*48)[5]!=1:raise RuntimeError('scene was not submitted')
@@ -565,12 +658,14 @@ def run(request_path,destination,prefix):
                         break
                     time.sleep(1)
             if candidate:
-                if not result.get('detached') or not result.get('source_bootstrap_verified') or not result.get('component_unloaded'):
+                from mumu_ownership import released_resources
+                if not (result.get('detached') and result.get('source_bootstrap_verified') and
+                        (result.get('component_unloaded') or released_resources(result))):
                     checked_receipt(result,execute=True)
             else:checked_receipt(result,execute=execute,scene=scene)
             return result
         status('calibrating','手机本机：核验原生初始发牌和安全释放。')
-        delayed=copy.deepcopy(shifted)
+        delayed=copy.deepcopy(hint_initial)
         seen=[]
         for calibration in range(12):
             seen.append(deck_fingerprint(shifted))
@@ -615,15 +710,21 @@ def run(request_path,destination,prefix):
             write_new(destination/'ability-search.json',search_result)
             # Always compare the simulated end with the page (the search only does so for ambiguous abilities).
             tier,difference=page_comparison(read(source),aligned,execution)
-            original_seed=aligned['initialization_only']['rndSeed']
-            seed_report=dict(original_seed=original_seed,original_tier=tier,original_difference=difference,attempts=[],selected_seed=original_seed)
+            initial_seed=aligned['initialization_only']['rndSeed'];original_seed=source_seed
+            seed_report=dict(original_seed=original_seed,original_tier=tier if initial_seed==original_seed else None,
+                original_difference=difference if initial_seed==original_seed else None,initial_seed=initial_seed,
+                preparation_hint_used=hint_detail['used'],attempts=[],selected_seed=initial_seed)
             def rank(tier,difference):return (PAGE_MATCH_TIERS.index(tier),difference if difference is not None else 1<<30)
-            best=(rank(tier,difference),original_seed,tier,difference,(aligned,execution,search_result,dict(selected_candidate)))
+            best=(rank(tier,difference),initial_seed,tier,difference,(aligned,execution,search_result,dict(selected_candidate)))
             if tier!='exact':
-                for number,seed in enumerate(seed_plan(request['source_sha256'],original_seed)):
+                context.update(seed_search_active=True,best_source_execution_verified=True,best_page_match=tier,best_page_hp_difference=difference)
+                def progress(number,seed,current_best):
                     if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed search')
-                    status('simulating','终局塔血与网页不符（随机技能依赖未知种子，如骷髅帝王召唤）；尝试其他随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'，当前最接近：'+best[2]+'。')
-                    row=dict(seed=seed)
+                    context.update(seed_trial_number=number+1,seed_attempts=number,best_page_match=current_best[2],best_page_hp_difference=current_best[3])
+                    label={'exact':'终局完全一致','same_towers':'被摧毁的塔一致','same_winner':'胜负一致','different':'终局仍不一致'}[current_best[2]]
+                    status('simulating','尝试随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'，当前最优：'+label+'。可停止匹配并播放当前最优对局。')
+                def evaluate_seed(seed,number):
+                    nonlocal prep,attempt_prefix
                     try:
                         trial=copy.deepcopy(delayed);trial['initialization_only']['rndSeed']=seed
                         trial_seen=[]
@@ -639,16 +740,14 @@ def run(request_path,destination,prefix):
                             lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
                             cancelled=lambda:(destination/'stop-request.json').exists())
                         trial_tier,trial_difference=page_comparison(read(source),trial,trial_execution)
-                        row.update(executed=True,tier=trial_tier,difference=trial_difference,
-                                   towers=(trial_execution.get('battle_state') or {}).get('towers'))
-                        if rank(trial_tier,trial_difference)<best[0]:
-                            best=(rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
-                                  (trial,trial_execution,trial_search,dict(selected_candidate)))
-                    except Cancelled:raise
-                    except Exception as error:row.update(executed=False,error=str(error)[:300])
+                        return (rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
+                            (trial,trial_execution,trial_search,dict(selected_candidate)))
                     finally:attempt_prefix=''
-                    seed_report['attempts'].append(row)
-                    if best[2]=='exact':break
+                best,attempts,stopped=choose_trials(best,retry_seed_plan(request['source_sha256'],original_seed,initial_seed),evaluate_seed,
+                    lambda:best_requested(destination/'accept-best-seed.json',request['source_sha256'],identity),progress,Cancelled)
+                seed_report.update(attempts=attempts,stopped_by_user=stopped)
+                context['seed_search_stopped_by_user']=stopped
+            context['seed_search_active']=False
             _,selected_seed,tier,difference,(aligned,execution,search_result,chosen)=best
             selected_candidate.clear();selected_candidate.update(chosen)
             seed_report.update(selected_seed=selected_seed,selected_tier=tier,selected_difference=difference)
@@ -667,6 +766,8 @@ def run(request_path,destination,prefix):
             roundtrip=read(destination/'bootstrap-v4-source-execution.json')
             if not roundtrip.get('loaded_from_json') or roundtrip['commands']!=full['native_replay']['cmd']:
                 raise RuntimeError('native JSON round-trip changed source commands')
+            try:context['preparation_hint_saved']=save_hint(files,hint_initial,aligned,exact=hp_matched,roundtrip_verified=True)
+            except (OSError,ValueError,KeyError,TypeError):context['preparation_hint_saved']=False
         # The Android scene cannot initialise reliably behind another Activity.
         # Wait BEFORE publication. The visible app attaches its user-approved
         # progress overlay, opens the game, and writes a source-bound signal.
@@ -710,7 +811,7 @@ def run(request_path,destination,prefix):
                 status('released','游戏进程已结束，控制台已就绪；原回放记录保留。',monitor_active=False,generation_released=True);return
             if (destination/'stop-request.json').exists():
                 comp=read(destination/'scene-v1-component.json')
-                stop_owned(identity,scene,comp['device_path'])
+                stop_owned(identity,scene,comp)
                 status('stopped','已安全停止本机回放，仅重新打开游戏客户端。',monitor_active=False);return
             current=live_scene(identity)
             if current['controller']!=scene['fields'][27]:
@@ -732,7 +833,7 @@ def run(request_path,destination,prefix):
                 # Until its lifetime is repaired, use the previously authorized
                 # exact-owned client restart AND reopen, never leave it closed.
                 status('returning_lobby','终局已核验；正在释放本地现场并自动重新打开游戏。当前采用客户端重启兜底，不是免重启返回。')
-                stop_owned(identity,terminal,read(destination/'scene-v1-component.json')['device_path'],reopen=True)
+                stop_owned(identity,terminal,read(destination/'scene-v1-component.json'),reopen=True)
                 context['client_reopened']=True
                 write_new(destination/'automatic-return.json',dict(source_sha256=request['source_sha256'],
                     old_game_pid=identity['pid'],old_game_start_time=identity['process_start_time'],

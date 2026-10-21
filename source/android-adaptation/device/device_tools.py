@@ -14,6 +14,8 @@ import subprocess
 import struct
 from elf_contract import Elf
 from device_expression import evaluate
+from mumu_compiler import run as compiler_run
+from mumu_platform import enabled as mumu_enabled, host_binary
 
 
 def needed(raw):
@@ -57,11 +59,11 @@ def compile_check(prefix, destination):
     flags,runtime=compiler_flags(prefix)
     library=destination/'libcompiler_check.so'
     with (destination/'compile.log').open('x') as log:
-        subprocess.run([*flags,'-fPIC','-shared',str(code),*runtime,'-o',str(library)],stdout=log,stderr=subprocess.STDOUT,check=True,timeout=60)
+        compiler_run([*flags,'-fPIC','-shared',str(code),*runtime,'-o',str(library)],stdout=log,stderr=subprocess.STDOUT,check=True,timeout=60)
         child_source=destination/'child.cpp'
         child_source.write_text('#include <unistd.h>\nextern "C" __attribute__((visibility("default"),noinline)) int cr_phone_test_value(int n){return n+7;}\nint main(){for(;;)usleep(10000);}\n')
         executable=destination/'debug-child'
-        subprocess.run([*flags,'-fPIE','-pie','-Wl,--export-dynamic',str(child_source),*runtime,'-o',str(executable)],stdout=log,stderr=subprocess.STDOUT,check=True,timeout=60)
+        compiler_run([*flags,'-fPIE','-pie','-Wl,--export-dynamic',str(child_source),*runtime,'-o',str(executable)],stdout=log,stderr=subprocess.STDOUT,check=True,timeout=60)
     if 'libc++_shared.so' in needed(library.read_bytes()):raise ValueError('phone component must not depend on shared C++ runtime')
     module=ctypes.CDLL(str(library));function=module.cr_phone_compiler_check
     function.argtypes=[ctypes.c_int];function.restype=ctypes.c_int
@@ -70,15 +72,24 @@ def compile_check(prefix, destination):
 
 
 def check_own_child(lldb, debugger, executable, destination):
-    child=subprocess.Popen([str(executable)],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    process=None;target=None
+    environment=dict(os.environ)
+    if mumu_enabled():
+        for key in ('LD_LIBRARY_PATH','LD_PRELOAD'):environment.pop(key,None)
+    child=subprocess.Popen([str(executable)],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=environment)
+    process=None;target=None;attachment=None
     try:
+        if child.poll() is not None:raise RuntimeError('owned synthetic child exited before attach')
         target=debugger.CreateTarget(str(executable))
         if not target.IsValid():raise ValueError('synthetic ELF target could not be created')
         error=lldb.SBError()
         # This PID comes only from the child we just created, never input HTML,
         # user text, a process search, or the official game package.
-        process=target.AttachToProcessWithID(debugger.GetListener(),child.pid,error)
+        if mumu_enabled():
+            from mumu_debugger import Attachment
+            with (destination/'server.log').open('x') as log:
+                attachment=Attachment(lldb,target,debugger.GetListener(),child.pid,log)
+            process=attachment.process
+        else:process=target.AttachToProcessWithID(debugger.GetListener(),child.pid,error)
         if not error.Success() or not process.IsValid():raise RuntimeError('own-child attach failed: '+str(error))
         if process.GetProcessID()!=child.pid:raise ValueError('synthetic child identity differs')
         found=target.FindFunctions('cr_phone_test_value')
@@ -90,9 +101,11 @@ def check_own_child(lldb, debugger, executable, destination):
         finally:
             with (destination/'native-expression.json').open('x') as stream:json.dump(evidence,stream,indent=2)
         if value!=44:raise RuntimeError('own-child native expression result differs')
-        if not process.Detach().Success():raise RuntimeError('own-child debugger detach failed')
+        if attachment:attachment.close();attachment=None
+        elif not process.Detach().Success():raise RuntimeError('own-child debugger detach failed')
         return True
     finally:
+        if attachment:attachment.close()
         if process and process.IsValid() and process.GetState() not in (lldb.eStateExited,lldb.eStateDetached):process.Detach()
         if target and target.IsValid():debugger.DeleteTarget(target)
         if child.poll() is None:child.terminate()
@@ -121,18 +134,21 @@ def run(prefix, destination):
         import lldb
         version=lldb.SBDebugger.GetVersionString()
         if not version or 'lldb' not in version.lower():raise ValueError('debugger version missing')
-        os.environ['LLDB_DEBUGSERVER_PATH']=str(prefix/'bin/lldb-server')
+        translated=mumu_enabled()
+        os.environ['LLDB_DEBUGSERVER_PATH']=str(host_binary('lldb-server') if translated else prefix/'bin/lldb-server')
         lldb.SBDebugger.Initialize()
         debugger=lldb.SBDebugger.Create()
         debugger.SetAsync(False)
         try:
             if not debugger.IsValid() or debugger.GetNumTargets()!=0:raise ValueError('debugger self-check created an unexpected target')
-            child_ok=check_own_child(lldb,debugger,executable,destination)
+            child_ok=check_own_child(lldb,debugger,host_binary('debug-child') if translated else executable,destination)
             report=dict(schema='royale-replay.android-debugger-check.v1',processing_location='android',
                         debugger_version=version,python_version=sys.version.split()[0],
                         debugger_loaded=True,empty_debugger_created=True,targets=0,
                         cpp_compiled_on_phone=True,cpp_static_runtime_verified=True,compiled_library_sha256=compiled_sha,
                         own_child_native_call_verified=child_ok,
+                        own_child_arch='x86_64' if translated else 'aarch64',
+                        own_child_built_on_phone=not translated,
                         game_attached=False,game_memory_written=False,native_game_calls=False,
                         termux_app_directory_modified=False,desktop_backend_used=False,
                         standalone_playback_ready=False)

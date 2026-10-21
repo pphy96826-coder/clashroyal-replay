@@ -17,14 +17,15 @@ public final class DiagnosticExport {
         "local-preparation-status.json","local-preparation-process.json","local-build-status.json","local-tools-status.json"));
     private static final Set<String> TASK=new HashSet<String>(Arrays.asList(
         "status.json","error.txt","native-entry.json","ability-search.json","failure-recovery.json",
-        "preparation-release.json","process-release.json","automatic-return.json","maps-diagnostic.json"));
+        "preparation-release.json","process-release.json","automatic-return.json","maps-diagnostic.json",
+        "preparation-hint.json","seed-search.json","terminal-choice.json"));
     private DiagnosticExport(){}
 
     static File checkedTask(File files,File active)throws IOException{
         return PrivateTaskPaths.resolve(files,active,true);
     }
     static boolean taskName(String name){
-        return TASK.contains(name)||name.matches("[a-z0-9][a-z0-9-]{0,95}-(result|binding|component|source-execution)\\.json");
+        return TASK.contains(name)||name.matches("[a-z0-9][a-z0-9-]{0,95}-(result|binding|component|source-execution|timing)\\.json");
     }
     private static void collect(File files,File task,SortedMap<String,File> selected)throws IOException{
         for(String name:GLOBAL)selected.put("console/"+name,new File(files,name));

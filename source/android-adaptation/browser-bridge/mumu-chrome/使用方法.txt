@@ -1,0 +1,1 @@
+在模拟器里的 Chrome 创建书签 Play Replay，将网址替换为 Play-Replay-MuMu.txt 全文，保留 javascript: 前缀。回到完整 RoyaleAPI Replay 页面，从地址栏选择该书签建议，看到按钮后点击发送。新版自动入队准备，在游戏悬浮窗点播放。
