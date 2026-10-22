@@ -12,6 +12,7 @@ import lldb
 from client_session import ReadOnlySession
 from scene_start_contract import require_idle_lobby,battle_observation_ready
 from tower_profiles import bindings
+from signal_policy import foreign_signal
 
 ROOT=Path(__file__).resolve().parent
 
@@ -171,8 +172,19 @@ def run(debugger,attempt,action,receipt):
             if not process.Continue().Success():raise RuntimeError('resume failed')
             complete=False
             # Phone VMs load the battle scene far slower than MuMu (seen >15 s).
+            passed=result.setdefault('passed_signals',[])
             for _ in range(180):
                 time.sleep(.5)
+                # A game-runtime signal on a thread outside our component is
+                # handed back unchanged; anything else still fails closed.
+                if process.GetState()==lldb.eStateStopped and len(passed)<256:
+                    stop=foreign_signal(lldb,process,regions)
+                    if stop is not None:
+                        passed.append(stop);save()
+                        if not process.Continue().Success():raise RuntimeError('resume after game signal failed')
+                        until=time.monotonic()+3
+                        while process.GetState()==lldb.eStateStopped and time.monotonic()<until:time.sleep(.02)
+                        continue
                 if process.GetState()!=lldb.eStateRunning:raise RuntimeError('native scene stopped; preserve ownership')
                 session=ReadOnlySession(identity)
                 finished=struct.unpack('<I',session.read(done,4))[0];session.verify()

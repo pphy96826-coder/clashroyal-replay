@@ -70,23 +70,78 @@ def terminal_hp_matches(source, preparation, report):
     return bool(rows) and all(r['page'] is not None and r['simulated'] == r['page'] for r in rows)
 
 
+def damage_lower_bound(source, preparation, report):
+    """Admissible bound on the final six-tower difference from a PARTIAL run.
+
+    Tower HP never rises, so a tower already below its page HP ends at least that
+    far below it: sum(max(0, page - current)). The two princess towers of a side
+    use whichever page order gives the smaller bound (the page order is not
+    reliably left/right). Also returns the observed HP for the monotonic check.
+    """
+    rows = final_tower_rows(source, preparation, report)
+    def gap(row, page):
+        if page is None or row['simulated'] is None: return 0
+        return max(0, page - row['simulated'])
+    total = 0
+    for owner in sorted({r['owner'] for r in rows}):
+        king, a, b = [r for r in rows if r['owner'] == owner]
+        total += gap(king, king['page'])
+        total += min(gap(a, a['page']) + gap(b, b['page']), gap(a, b['page']) + gap(b, a['page']))
+    observed = {(r['owner'], r['tower']): r['simulated'] for r in rows if r['simulated'] is not None}
+    return total, observed
+
+
 def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:False,
-           closest=None, stop_early=lambda:False):
-    """closest(candidate, report) -> sortable key (lower is closer). When given,
-    the closest fully executed candidate is kept: stop_early() returns it at
-    once, and it is returned instead of an error when no branch matches. The
-    result then says final_hp_matched=False, closest_selected=True."""
+           closest=None, stop_early=lambda:False, initial=None, bound=None, incumbent=None, patience=None):
+    """Best-first branch and bound over ambiguous ability targets.
+
+    closest(candidate, report) -> sortable key (lower is closer); key[0] is the
+    six-tower HP difference. When given, the closest fully executed candidate is
+    kept: stop_early() returns it at once, and it is returned instead of an error
+    when no branch matches (final_hp_matched=False, closest_selected=True).
+    initial: ability choices to try first; later ambiguities still branch from it.
+    bound(candidate, report) -> (lower_bound, observed_hp) for a run paused at an
+    ambiguity. Branches are explored lowest bound first (deeper first on ties) and
+    a branch is dropped when its bound proves it cannot match (exact search) or
+    cannot beat the closest complete run. Pruning switches off by itself if any
+    tower HP is ever seen to rise, since the bound then no longer holds.
+    incumbent: best six-tower difference already found elsewhere (another seed);
+    branches whose bound reaches it are dropped too.
+    patience: in closest mode, once every remaining branch has a positive bound
+    (an exact match is impossible at this seed) and the closest result has not
+    improved for this many runs, return the closest result instead of continuing.
+    """
+    import heapq
     if type(max_attempts) is not int or not 1<=max_attempts<=4096:
         raise ValueError('invalid candidate search bound')
-    pending=[{}];seen=set();history=[];ambiguous=False;best=None
+    # The initial combination is tried first (deepest); if it dies under this seed
+    # the search falls back to the empty root instead of giving the seed up.
+    pending=[(0,-len(initial or {}),0,dict(initial or {}),None)];order=1
+    if initial:pending.append((0,0,order,{},None));order+=1
+    seen=set();history=[];ambiguous=bool(initial);best=None;pruned=0;monotonic=True;since_improved=0
     def closest_result(stopped):
         key,candidate,report,index=best
         return candidate,report,dict(attempts=history,ambiguous=ambiguous,final_hp_matched=False,inferred=True,
-            unique_solution_proven=False,closest_selected=True,stopped_by_user=stopped,chosen_attempt=index,remaining=len(pending))
+            unique_solution_proven=False,closest_selected=True,stopped_by_user=stopped,chosen_attempt=index,
+            remaining=len(pending),pruned=pruned,bound_monotonic=monotonic,exact_impossible=exact_impossible())
+    def best_difference():
+        if best is None: return None
+        difference=best[0][0] if isinstance(best[0],tuple) else best[0]
+        return difference if type(difference) in (int,float) else None
+    def hopeless(lower):
+        if not monotonic or lower is None: return False
+        if closest is None: return lower>0  # exact match needs every tower at page HP
+        limits=[v for v in (best_difference(),incumbent) if type(v) in (int,float)]
+        return bool(limits) and lower>=min(limits)
+    def exact_impossible():
+        return monotonic and bound is not None and best is not None and all(item[0]>0 for item in pending)
     while pending and len(history)<max_attempts:
         if cancelled(): raise RuntimeError('技能候选搜索已取消；未提交后续候选')
         if best is not None and stop_early(): return closest_result(True)
-        choices=pending.pop()
+        if patience is not None and closest is not None and since_improved>=patience and exact_impossible():
+            return closest_result(False)
+        lower,_,_,choices,parent_hp=heapq.heappop(pending)
+        if hopeless(lower): pruned+=1; continue
         key=tuple(sorted(choices.items()))
         if key in seen: continue
         seen.add(key)
@@ -94,24 +149,35 @@ def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:
         candidate['ability_target_choices']=choices
         # execute MUST return only after clean, detached private-battle release.
         report,evidence=execute(candidate,len(history))
-        history.append(dict(choices=choices,evidence=evidence,error=report.get('error'),
+        row=dict(choices=choices,evidence=evidence,error=report.get('error'),
             native_accepted=report.get('native_accepted',0),failure=source_failure(report) if report.get('error') else None,
-            first_settlement_tick=(report.get('battle_state') or {}).get('first_settlement_tick')))
+            first_settlement_tick=(report.get('battle_state') or {}).get('first_settlement_tick'))
+        history.append(row)
         if source_completed(report,len(candidate['events'])):
             if not ambiguous or matches(candidate,report):
                 return candidate,report,dict(attempts=history,ambiguous=ambiguous,
                     final_hp_matched=bool(ambiguous),inferred=bool(ambiguous),unique_solution_proven=False,
-                    chosen_attempt=len(history)-1)
+                    chosen_attempt=len(history)-1,pruned=pruned,bound_monotonic=monotonic)
             if closest is not None:
                 key=closest(candidate,report)
-                if best is None or key<best[0]:best=(key,candidate,report,len(history)-1)
+                if best is None or key<best[0]:best=(key,candidate,report,len(history)-1);since_improved=0
+                else:since_improved+=1
         elif report.get('error')==112 and type(report.get('native_code')) is int and 1<report['native_code']<=1024:
             index=report.get('event_index')
             if type(index) is not int or not 0<=index<len(candidate['events']) or candidate['events'][index]['kind']!='activate_ability':
                 raise ValueError('ambiguous report is not a source ability')
             if str(index) in choices: continue  # Invalidated branch; never repeat.
             ambiguous=True
-            pending.extend(dict(choices,**{str(index):v}) for v in reversed(range(report['native_code'])))
+            child_lower,observed=0,None
+            since_improved+=1
+            if bound is not None:
+                child_lower,observed=bound(candidate,report)
+                row['lower_bound']=child_lower
+                if parent_hp and any(observed.get(t,v)>v for t,v in parent_hp.items()):monotonic=False
+                if hopeless(child_lower): pruned+=1; continue
+            for v in range(report['native_code']):
+                # Deeper (more decided) branches first among equal bounds, then lower ordinal.
+                heapq.heappush(pending,(child_lower,-len(choices)-1,order,dict(choices,**{str(index):v}),observed));order+=1
         elif not ambiguous:
             raise RuntimeError(source_failure(report))
     if best is not None:return closest_result(False)
@@ -120,6 +186,6 @@ def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:
         best=max(history,key=lambda row:row['native_accepted'])
         if best.get('failure'):reason+='。执行最远分支：'+best['failure']
     error=RuntimeError(reason+'；未发布回放，不把终局血量相同当作过程唯一正确。')
-    error.search_report=dict(attempts=history,remaining=len(pending),exhaustive=False,
+    error.search_report=dict(attempts=history,remaining=len(pending),exhaustive=False,pruned=pruned,bound_monotonic=monotonic,
         explored_branches_exhausted=not pending,full_match_possibilities_exhausted=False)
     raise error

@@ -61,6 +61,11 @@ public final class MainActivity extends Activity {
             new Thread(new Runnable(){public void run(){String note;try{note=ConsoleActions.stopSeedSearch(MainActivity.this);}catch(Exception e){note="未停止："+e.getMessage();}
                 final String result=note;runOnUiThread(new Runnable(){public void run(){uiNote=result;updateStatus();}});}}).start();}});
         resetAll=button(root,"重置所有回放进程（卡住时用）",new View.OnClickListener(){public void onClick(View v){confirmReset();}});
+        cleanButton=button(root,"清理旧运行环境和任务记录",new View.OnClickListener(){public void onClick(View v){confirmClean();}});
+        button(root,"冻结卡顿的指纹服务（虚拟机卡顿时用）",new View.OnClickListener(){public void onClick(View v){
+            uiNote="正在检查指纹服务占用…";updateStatus();
+            new Thread(new Runnable(){public void run(){String note;try{note=ConsoleActions.stopBusyFingerprint();}catch(Exception e){note="未停止："+e.getMessage();}
+                final String result=note;runOnUiThread(new Runnable(){public void run(){uiNote=result;updateStatus();}});}}).start();}});
         label(root,"本机独立播放 · 无需电脑\n校验后用悬浮进度卡陪同加载，确认开播后收起。网页仅内置浏览器直连，不改电脑或系统网络。",13,0xff9aaec8);
         try{JSONObject meta=new JSONObject(text(new File(getFilesDir(),"source.json"),8192));sourceLabel.setText("上次导入："+meta.optString("tag","")+" · "+meta.optLong("events",0)+" 条指令");}catch(Exception ignored){}
         handler.post(refresh);
@@ -196,6 +201,17 @@ public final class MainActivity extends Activity {
             try{ConsoleActions.finishReplay(MainActivity.this,again,false);note="";}catch(Exception e){note="未操作回放："+e.getMessage();}
             final String result=note;
             runOnUiThread(new Runnable(){public void run(){finishing=false;uiNote=result;updateStatus();}});
+        }}).start();
+    }
+    private Button cleanButton;private long cleanArmedUntil;private volatile boolean cleaning;
+    private void confirmClean(){
+        if(cleaning)return;
+        if(System.currentTimeMillis()>cleanArmedUntil){cleanArmedUntil=System.currentTimeMillis()+5000;cleanButton.setText("5 秒内再点一次：删除旧运行环境和过期任务记录");return;}
+        cleanArmedUntil=0;cleaning=true;cleanButton.setEnabled(false);cleanButton.setText("正在清理…");
+        new Thread(new Runnable(){public void run(){String note;
+            try{note=ConsoleActions.cleanStorage(MainActivity.this);}catch(Exception e){note="未清理："+e.getMessage();}
+            final String result=note;
+            runOnUiThread(new Runnable(){public void run(){cleaning=false;cleanButton.setEnabled(true);cleanButton.setText("清理旧运行环境和任务记录");uiNote=result;updateStatus();}});
         }}).start();
     }
     private Button resetAll,seedStop;private long resetArmedUntil;private volatile boolean resetting;

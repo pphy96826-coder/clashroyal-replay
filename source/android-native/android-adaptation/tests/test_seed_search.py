@@ -38,11 +38,15 @@ class SeedSearchTests(unittest.TestCase):
         self.assertIn('tier,difference=page_comparison(read(source),aligned,execution)',block)
         self.assertIn("if seed_policy['search_needed']:",block)
         # Each seed gets its own deal calibration before any source command runs.
-        self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,deal,trial_seen)'))
-        self.assertLess(block.index('trial=calibrate(trial,deal,trial_seen)'),block.index('search(trial,execute_candidate'))
+        self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,probe(name),trial_seen)'))
+        self.assertLess(block.index('trial=calibrate(trial,probe(name),trial_seen)'),block.index('return search(trial,execute_candidate'))
+        # Screening predicts the deal from ONE probe; a deal mismatch recalibrates normally.
+        self.assertIn("if trial['native_deal_ready'] or optimistic:return trial",block)
+        self.assertIn("if 'native deal mismatch' not in str(error):raise",block)
+        self.assertIn("trial=calibrated(number,seed,False)",block)
         # Only fully executed runs compete; the original seed stays a candidate; an exact match stops the search.
         self.assertIn("best=(rank(tier,difference),original_seed",block)
-        self.assertIn("if rank(trial_tier,trial_difference)<best[0]:",block)
+        self.assertIn("if entry[0]<best[0]:best=entry",block)
         self.assertIn("if best[2]=='exact':break",block)
         self.assertIn("selected_candidate.clear();selected_candidate.update(chosen)",block)
         self.assertIn("raise Cancelled('cancelled during seed search')",block)
@@ -114,45 +118,58 @@ class SeedPolicyTests(unittest.TestCase):
         self.assertEqual(policy['eligible_cards'],['hunter'])
         self.assertFalse(load('seed_search_policy')({},'different')['search_needed'])
 
-    def run_gate(self, cards, tier='different', fail_abilities=False):
+    def run_gate(self, cards, tier='different', fail_abilities=False, seeds=(100,), differences=None):
         """Execute the real runner selection block with native calls replaced by counters."""
         start=SOURCE.index('            ability_error=None')
         end=SOURCE.index('            full=finalize(aligned,execution,receipt)',start)
         block=textwrap.dedent(SOURCE[start:end])
         source=self.source(cards,[])
         aligned=dict(initialization_only=dict(rndSeed=42),events=[dict(tick=20)])
-        selected={};calls=dict(seeds=[],search=[],probe=[]);records={}
-        def search(candidate,execute,match,*,cancelled):
+        selected={};calls=dict(seeds=[],search=[],probe=[]);records={};self.search_options=[]
+        def search(candidate,execute,match,*,cancelled,**options):
             calls['search'].append(candidate['initialization_only']['rndSeed'])
+            self.search_options.append(options)
             if fail_abilities:
                 error=RuntimeError('strict ability search exhausted')
                 error.search_report=dict(explored_branches_exhausted=True)
                 raise error
             selected.update(receipt='receipt',preparation='prep')
-            return candidate,dict(seed=candidate['initialization_only']['rndSeed']),dict(inferred=False)
-        def plan(sha,original):calls['seeds'].append(original);return [100]
+            chosen=dict(candidate,ability_target_choices={'3':1})
+            return chosen,dict(seed=candidate['initialization_only']['rndSeed']),dict(inferred=False)
+        def plan(key,original,remembered=None):calls['seeds'].append(original);self.remembered=getattr(self,'remembered',[])+[remembered];return ([remembered] if remembered else [])+list(seeds)
         def compare(source,candidate,report):
+            if differences is not None:return ('same_towers',differences[report['seed']])
             return ('exact',0) if report['seed']==100 else (tier,0 if tier=='exact' else 123)
         def calibrate(candidate,deal,seen):candidate['native_deal_ready']=True;return candidate
         with tempfile.TemporaryDirectory() as directory:
             scope=dict(aligned=aligned,delayed=copy.deepcopy(aligned),source='source',read=lambda path:source,
                        seed_search_policy=load('seed_search_policy'),seed_search_note=load('seed_search_note'),
-                       PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different'),SEED_ATTEMPTS=60,
-                       rank=lambda t,d:(('exact','same_towers','same_winner','different').index(t),d or 0),
+                       PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different','unknown'),SEED_ATTEMPTS=60,SCREEN_RUNS=1,SCREEN_RUNS_UNFIXED=12,REFINE_SEEDS=3,REFINE_RUNS=24,
+                       rank=lambda t,d:(('exact','same_towers','same_winner','different','unknown').index(t),d if d is not None else 1<<30),
                        search=search,execute_candidate=None,terminal_hp_matches=lambda *args:True,page_comparison=compare,page_towers=lambda *args:[],
                        restore=lambda result:None,selected_candidate=selected,context={},
+                       closest_abilities=load('seed_search_policy')(source,'different')['allowed'],hp_key='hp_key',hp_bound='hp_bound',
                        destination=Path(directory),preparation=Path(directory),request=dict(source_sha256='a'*64),
                        write_new=lambda path,value:records.update({path.name:copy.deepcopy(value)}),
                        seed_plan=plan,copy=copy,seed_stop=lambda:False,status=lambda *args,**kwargs:None,
+                       replay_key=lambda source:'match-key',files=Path(directory),owner=Path(directory).stat(),os=__import__('os'),time=__import__('time'),json=__import__('json'),
                        calibrate=calibrate,deck_fingerprint=lambda candidate:(),
                        probe=lambda name:calls['probe'].append(name),Cancelled=type('Cancelled',(Exception,),{}))
-            try:exec(compile(block,'runner-selection','exec'),scope)
+            # The block runs inside run() in production; give it a function scope so
+            # its nested helpers can use nonlocal exactly as they do on the phone.
+            names=[k for k in scope if k.isidentifier()]
+            code='def _outer(_g):\n'+''.join('    %s=_g[%r]\n'%(k,k) for k in names)+"    prep=None\n    attempt_prefix=''\n"+\
+                 textwrap.indent(block,'    ')+'\n    return dict(locals())\n'
+            exec(compile(code,'runner-selection','exec'),scope)
+            try:scope.update({k:v for k,v in scope['_outer'](dict(scope)).items() if k!='_g'})
             except RuntimeError as error:scope['raised']=str(error)
         return scope,calls,records
 
     def test_ineligible_mismatch_keeps_original_without_native_seed_attempts(self):
         scope,calls,records=self.run_gate(['archer-queen','graveyard'])
         self.assertEqual(calls,dict(seeds=[],search=[42],probe=[]))
+        self.assertIsNone(self.search_options[0]['closest'])  # strict for other decks
+        self.assertEqual(self.search_options[0]['bound'],'hp_bound')  # every search prunes by tower HP
         self.assertEqual(scope['aligned']['initialization_only']['rndSeed'],42)
         self.assertEqual(scope['context']['seed_attempts'],0)
         self.assertFalse(scope['context']['seed_search_allowed'])
@@ -174,6 +191,9 @@ class SeedPolicyTests(unittest.TestCase):
             self.assertEqual(scope['context']['random_seed'],100)
             self.assertTrue(scope['context']['final_hp_matched'])
             self.assertEqual(scope['context']['seed_attempts'],1)
+            # Closest six-tower combination first; the seed reruns it within 16 attempts.
+            self.assertEqual(self.search_options[0]['closest'],'hp_key')
+            self.assertEqual(self.search_options[1],dict(initial={'3':1},closest='hp_key',max_attempts=1,patience=None,incumbent=123,bound=scope['hp_bound']))
             _,calls,_=self.run_gate([card],tier='exact')
             self.assertEqual(calls,dict(seeds=[],search=[42],probe=[]))
 
@@ -193,10 +213,15 @@ class SeedStopTests(unittest.TestCase):
     def test_user_can_stop_search_and_play_closest_so_far(self):
         block=SOURCE[SOURCE.index('# The user may end the search at any time'):SOURCE.index("selected_candidate.clear();selected_candidate.update(chosen)")]
         self.assertIn("def seed_stop():return (destination/'seed-stop-request.json').exists()",SOURCE)
-        # Abilities stay strict: no closest fallback anywhere in the runner.
-        self.assertNotIn('closest=',SOURCE)
+        # Closest ability combinations only for Hunter/Skeleton King decks; others stay strict.
+        self.assertIn("closest_abilities=seed_search_policy(read(source),'different')['allowed']",SOURCE)
+        self.assertIn("closest=hp_key if closest_abilities else None,stop_early=seed_stop if closest_abilities else lambda:False",SOURCE)
+        # Seeds rerun the chosen combination first, within a small bound.
+        self.assertIn("max_attempts=SCREEN_RUNS if fixed_choices else SCREEN_RUNS_UNFIXED",SOURCE)
+        self.assertIn("sorted(screened,key=lambda item:item[0])[:REFINE_SEEDS]",SOURCE)
+        self.assertIn("ability_search_active=True",SOURCE)
         self.assertIn("if not getattr(error,'search_report',{}).get('explored_branches_exhausted'):raise",SOURCE)
-        self.assertIn("cancelled=lambda:(destination/'stop-request.json').exists() or seed_stop())",SOURCE)
+        self.assertIn("cancelled=lambda:(destination/'stop-request.json').exists() or seed_stop(),",SOURCE)
         self.assertIn("if best[4] is None:",SOURCE)
         # Checked before each seed and between calibration probes, never inside a native attempt.
         self.assertIn("if seed_stop():seed_report['stopped_by_user']=True;break",block)
@@ -250,6 +275,61 @@ class ClosestAbilitySearchTests(unittest.TestCase):
             if '0' not in candidate['ability_target_choices']:return dict(error=112,native_code=2,event_index=0),{}
             return dict(done=True),{}
         with self.assertRaises(RuntimeError):search(dict(events=[dict(kind='activate_ability')]),execute,lambda c,r:False)
+
+
+class ClosestAbilityRankTests(unittest.TestCase):
+    def test_six_tower_difference_ranks_combinations(self):
+        block=SOURCE[SOURCE.index('def hp_key(candidate,result):'):SOURCE.index('def execute_candidate(candidate,number):')]
+        self.assertIn('key=(difference if difference is not None else 1<<40,PAGE_MATCH_TIERS.index(tier))',block)
+        self.assertIn("if not attempt_prefix and (not closest_best or key<closest_best['key'])",block)
+
+    def test_initial_choices_are_tried_first_and_still_branch(self):
+        module=ClosestAbilitySearchTests.load(self)
+        tried=[]
+        def execute(candidate,number):
+            choices=candidate['ability_target_choices'];tried.append(dict(choices))
+            if '2' not in choices:return dict(error=112,native_code=2,event_index=2),dict(attempt='s%d'%number)
+            return dict(done=True,score=int(choices['2'])),dict(attempt='s%d'%number)
+        prep=dict(events=[dict(kind='activate_ability')]*3)
+        candidate,report,result=module.search(prep,execute,lambda c,r:False,initial={'1':1},closest=lambda c,r:r['score'],max_attempts=16)
+        self.assertEqual(tried[0],{'1':1})
+        self.assertEqual(candidate['ability_target_choices'],{'1':1,'2':0})
+        self.assertTrue(all(row['choices'].get('1')==1 for row in result['attempts']))
+
+
+class SignalPolicyTests(unittest.TestCase):
+    def setUp(self):
+        import importlib.util,types
+        spec=importlib.util.spec_from_file_location('signal_policy_t',ROOT.parent/'official-web-replay/signal_policy.py')
+        self.policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.policy)
+        self.lldb=types.SimpleNamespace(eStopReasonNone=0,eStopReasonInvalid=1,eStopReasonSignal=5,eStopReasonBreakpoint=3)
+
+    def process(self,*threads):
+        import types
+        rows=[]
+        for reason,signal,pc in threads:
+            frame=types.SimpleNamespace(GetPC=lambda pc=pc:pc)
+            rows.append(types.SimpleNamespace(GetStopReason=lambda r=reason:r,GetStopReasonDataAtIndex=lambda i,s=signal:s,
+                GetThreadID=lambda:7,GetFrameAtIndex=lambda i,f=frame:f,GetStopDescription=lambda n:'signal'))
+        return rows
+
+    def test_game_runtime_signal_outside_component_is_handed_back(self):
+        rows=self.policy.foreign_signal(self.lldb,self.process((5,11,0x1000),(0,0,0x5000)),[(0x9000,0xa000)])
+        self.assertEqual([r['signal'] for r in rows],[11])
+
+    def test_component_fault_trap_kill_or_breakpoint_fail_closed(self):
+        regions=[(0x9000,0xa000)]
+        for threads in (((5,11,0x9100),),((5,5,0x1000),),((5,9,0x1000),),((3,0,0x1000),),((0,0,0x1000),)):
+            self.assertIsNone(self.policy.foreign_signal(self.lldb,self.process(*threads),regions))
+
+    def test_both_gates_use_the_policy_and_record_it(self):
+        gate=(ROOT/'device/phone_bootstrap_gate.py').read_text()
+        scene=(ROOT.parent/'official-web-replay/run_scene_gate.py').read_text()
+        for source in (gate,scene):
+            self.assertIn('stop=foreign_signal(lldb,process,regions)',source)
+            self.assertIn("passed=result.setdefault('passed_signals',[])",source)
+        self.assertIn("result['stop_reasons']=stop_reasons(lldb,process)",gate)
+        self.assertIn("'signal_policy.py'",(ROOT/'scripts/refresh_playback_payload.py').read_text())
 
 
 class PrincessOrderTests(unittest.TestCase):
@@ -338,3 +418,254 @@ class SignedTowerIdTests(unittest.TestCase):
         rows=ability_search.final_tower_rows(source,{},report)
         self.assertEqual([r['evidence'] for r in rows if r['owner']==1],['alive','alive','destroyed'])
         self.assertTrue(ability_search.terminal_hp_matches(source,{},report))
+
+
+class StrayStopTests(unittest.TestCase):
+    """A queued SIGSTOP left by our own interrupt must never freeze the game."""
+    def load(self, root):
+        import signal as _signal
+        tree=ast.parse(SOURCE)
+        nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name=='release_stray_stop')
+               or (isinstance(n,ast.Assign) and getattr(n.targets[0],'id','')=='STOP_SIGNAL_MASK')]
+        sent=[]
+        fake_os=type('os',(),{'kill':staticmethod(lambda pid,sig:sent.append((pid,sig)))})
+        class FakePath(type(Path())):
+            def __new__(cls,*parts):
+                parts=list(parts)
+                if parts and str(parts[0])=='/proc':parts[0]=root
+                return Path(*parts)
+        scope=dict(signal=_signal,os=fake_os,Path=FakePath)
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),'stray','exec'),scope)
+        return scope['release_stray_stop'],sent
+
+    def task(self, root, tid, state, tracer=0, pending='0000000000000000', shared='0000000000000000'):
+        path=Path(root)/'7'/'task'/str(tid);path.mkdir(parents=True)
+        (path/'stat').write_text('%d (Thread (x)) %s 1 2 3'%(tid,state))
+        (path/'status').write_text('Name:\tx\nTracerPid:\t%d\nSigPnd:\t%s\nShdPnd:\t%s\n'%(tracer,pending,shared))
+
+    def test_stopped_or_pending_stop_without_tracer_gets_sigcont(self):
+        import signal as _signal
+        with tempfile.TemporaryDirectory() as root:
+            self.task(root,7,'T');self.task(root,8,'S',shared='0000000000040000')
+            release,sent=self.load(root)
+            found=release(7)
+            self.assertEqual([row['tid'] for row in found],[7,8])
+            self.assertEqual(sent,[(7,_signal.SIGCONT)])
+
+    def test_running_game_or_attached_debugger_is_untouched(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.task(root,7,'S');self.task(root,8,'R')
+            release,sent=self.load(root)
+            self.assertEqual(release(7),[]);self.assertEqual(sent,[])
+        with tempfile.TemporaryDirectory() as root:
+            self.task(root,7,'t',tracer=99);self.task(root,8,'T',tracer=99)
+            release,sent=self.load(root)
+            self.assertIsNone(release(7));self.assertEqual(sent,[])
+        with tempfile.TemporaryDirectory() as root:
+            release,sent=self.load(root)
+            self.assertIsNone(release(7));self.assertEqual(sent,[])
+
+    def test_called_before_attach_after_detach_and_in_recovery(self):
+        run=SOURCE[SOURCE.index('    def run(self,directory,attempt'):SOURCE.index('def lldb_mmap_addresses')]
+        self.assertLess(run.index("raise RuntimeError('another debugger owns game')"),run.index('stray=release_stray_stop'))
+        self.assertLess(run.index('stray=release_stray_stop'),run.index('AttachToProcessWithID'))
+        self.assertLess(run.index('process.Detach().Success()'),run.rindex('release_stray_stop'))
+        recover=SOURCE[SOURCE.index('def recover_failed_attempt'):SOURCE.index('def finish_completed')]
+        self.assertIn('tracer_gone',recover);self.assertIn("if tracer_gone:release_stray_stop(identity['pid'])",recover)
+
+
+class DebuggerLossRestartTests(unittest.TestCase):
+    """A debugger that loses the game says nothing about the replay: restart the
+    client and rerun the same step, keeping every finished candidate."""
+    def classify(self):
+        tree=ast.parse(SOURCE)
+        nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name=='debugger_lost')
+               or (isinstance(n,ast.Assign) and getattr(n.targets[0],'id','')=='DEBUGGER_LOSS_MARKERS')]
+        scope={};exec(compile(ast.Module(body=nodes,type_ignores=[]),'loss','exec'),scope)
+        return scope['debugger_lost']
+
+    def test_only_debugger_loss_is_classified(self):
+        lost=self.classify()
+        for error in ('RuntimeError: original task remains pending','RuntimeError: native process state 5; retain original task',
+                      'RuntimeError: native expression failed: error: Expression execution was interrupted: signal SIGSTOP.'):
+            self.assertTrue(lost(dict(errors=[error])))
+        for receipt in (dict(errors=[]),dict(),dict(errors=['RuntimeError: 第19条技能的合法目标数为2，技能目标未唯一确定（适配器112）']),
+                        dict(errors=['RuntimeError: original task remains pending','RuntimeError: native code fingerprint changed'])):
+            self.assertFalse(lost(receipt))
+
+    def test_probe_restarts_bounded_and_never_for_scenes(self):
+        probe=SOURCE[SOURCE.index('        def probe(name,'):SOURCE.index("        status('calibrating'")]
+        self.assertIn('if not scene and debugger_lost(result) and len(restarts)<DEBUGGER_LOSS_RESTARTS and progress[0]:',probe)
+        # Another restart only after a step completed in the restarted client.
+        self.assertLess(probe.index('progress[0]=0'),probe.index('restart_client(name)'))
+        self.assertLess(probe.index('checked_receipt(result,execute=execute,scene=scene)'),probe.index('progress[0]+=1'))
+        self.assertLess(probe.index('restart_client(name)'),probe.index("return probe(name+'-r'+str(len(restarts))"))
+        restart=SOURCE[SOURCE.index('        def restart_client(name):'):SOURCE.index('        def current_prep():')]
+        # Released with its own process first; continues only with an identical preparation.
+        self.assertLess(restart.index('recover_failed_attempt(destination,name,identity)'),restart.index('metadata(source,fresh_preparation'))
+        self.assertIn("if not generation_released(identity):raise",restart)
+        self.assertIn("stable(read(fresh_preparation/'preparation.json'))!=stable(read(first_preparation/'preparation.json'))",restart)
+        self.assertIn('current_prep()',probe)
+        # Readers follow the suffixed name of a rerun step.
+        self.assertIn("name=last_attempt",SOURCE)
+        self.assertIn("roundtrip=read(destination/(last_attempt+'-source-execution.json'))",SOURCE)
+
+
+class BranchAndBoundTests(unittest.TestCase):
+    """A synthetic 12-ability match: each wrong choice deals extra damage at once,
+    so a branch already below the page HP can be dropped at its next ambiguity."""
+    DEPTH=12
+    def model(self,truth):
+        module=ClosestAbilitySearchTests.load(self)
+        prep=dict(events=[dict(kind='activate_ability')]*self.DEPTH)
+        def damage(choices):return sum(300*(choices[str(i)]!=truth[i]) for i in range(self.DEPTH) if str(i) in choices)
+        def execute(candidate,number):
+            choices=candidate['ability_target_choices']
+            nxt=next((i for i in range(self.DEPTH) if str(i) not in choices),None)
+            hp=4000-damage(choices)
+            if nxt is None:return dict(done=True,hp=hp),dict(attempt='a%d'%number)
+            return dict(error=112,native_code=2,event_index=nxt,hp=hp),dict(attempt='a%d'%number)
+        bound=lambda c,r:(max(0,4000-r['hp']),{('t',0):r['hp']})  # page HP 4000 = the truth's final HP
+        return module,prep,execute,bound
+    def test_exact_search_prunes_overshooting_branches(self):
+        truth=[1,0,1,1,0,0,1,0,1,1,0,1]
+        module,prep,execute,bound=self.model(truth)
+        exact=lambda c,r:all(c['ability_target_choices'][str(i)]==truth[i] for i in range(self.DEPTH))
+        candidate,report,result=module.search(prep,execute,exact,bound=bound,max_attempts=4096)
+        self.assertTrue(exact(candidate,report))
+        self.assertLessEqual(len(result['attempts']),2*self.DEPTH+1)
+        self.assertGreater(result['pruned'],0)
+        # Without the bound the same order exhausts 4096 runs and still has not found it.
+        with self.assertRaises(RuntimeError) as plain:module.search(prep,execute,exact,max_attempts=4096)
+        self.assertEqual(len(plain.exception.search_report['attempts']),4096)
+    def test_closest_search_never_loses_the_best_branch(self):
+        truth=[0]*self.DEPTH
+        module,prep,execute,bound=self.model(truth)
+        closest=lambda c,r:(abs(r['hp']-4000),0)
+        candidate,report,result=module.search(prep,execute,lambda c,r:False,closest=closest,bound=bound,max_attempts=4096)
+        self.assertEqual(report['hp'],4000)
+    def test_rising_hp_switches_pruning_off(self):
+        module=ClosestAbilitySearchTests.load(self)
+        prep=dict(events=[dict(kind='activate_ability')]*2)
+        def execute(candidate,number):
+            choices=candidate['ability_target_choices']
+            if '0' not in choices:return dict(error=112,native_code=2,event_index=0,hp=100),{}
+            if '1' not in choices:return dict(error=112,native_code=2,event_index=1,hp=200),{}
+            return dict(done=True,hp=0),{}
+        bound=lambda c,r:(0 if r['hp']==100 else 5,{('t',0):r['hp']})
+        with self.assertRaises(RuntimeError) as raised:
+            module.search(prep,execute,lambda c,r:False,bound=bound)
+        self.assertFalse(raised.exception.search_report['bound_monotonic'])
+
+
+class SeedFallbackTests(unittest.TestCase):
+    def test_dead_initial_combination_falls_back_to_this_seeds_own_branches(self):
+        module=ClosestAbilitySearchTests.load(self)
+        prep=dict(events=[dict(kind='activate_ability')]*2)
+        tried=[]
+        def execute(candidate,number):
+            choices=candidate['ability_target_choices'];tried.append(dict(choices))
+            if choices=={'0':1}:return dict(error=114,native_code=4,event_index=1,dispatch=[]),{}  # fixed branch dies
+            if '0' not in choices:return dict(error=112,native_code=2,event_index=0),{}
+            return dict(done=True,score=int(choices['0'])),{}
+        candidate,report,result=module.search(prep,execute,lambda c,r:False,initial={'0':1},
+            closest=lambda c,r:(r['score'],0),max_attempts=16)
+        self.assertEqual(tried[0],{'0':1})
+        self.assertEqual(tried[1],{})
+        self.assertEqual(report['score'],0)
+    def test_plateau_stops_once_exact_is_impossible(self):
+        module=ClosestAbilitySearchTests.load(self)
+        depth=10;prep=dict(events=[dict(kind='activate_ability')]*depth)
+        def execute(candidate,number):
+            choices=candidate['ability_target_choices']
+            nxt=next((i for i in range(depth) if str(i) not in choices),None)
+            if nxt is None:return dict(done=True,hp=1000+sum(choices.values())),{}
+            return dict(error=112,native_code=2,event_index=nxt,hp=1000),{}
+        bound=lambda c,r:(5,{('t',0):r['hp']})  # every branch already provably off the page
+        candidate,report,result=module.search(prep,execute,lambda c,r:False,closest=lambda c,r:(r['hp'],0),
+            bound=bound,patience=6,max_attempts=4096)
+        self.assertTrue(result['exact_impossible'])
+        self.assertLess(len(result['attempts']),60)
+
+
+class SuccessiveHalvingTests(unittest.TestCase):
+    run_gate=SeedPolicyTests.run_gate
+    source=SeedPolicyTests.source
+    def test_screen_every_seed_once_then_refine_only_the_closest(self):
+        diffs={42:900,1:800,2:300,3:700,4:200,5:600}
+        scope,calls,records=self.run_gate(['hunter'],seeds=(1,2,3,4,5),differences=diffs)
+        self.assertNotIn('raised',scope)
+        # One deal probe per seed while screening.
+        self.assertEqual(calls['probe'],['seed-%d-deal-0'%n for n in range(5)])
+        # 1 original + 5 screened + 3 refined searches; refinement visits the 3 closest seeds, closest first.
+        self.assertEqual(calls['search'],[42,1,2,3,4,5,4,2,5])
+        self.assertEqual(self.search_options[6]['max_attempts'],24)
+        self.assertEqual(scope['context']['random_seed'],4)
+        phases=[row['phase'] for row in records['seed-search.json']['attempts']]
+        self.assertEqual(phases,['screen']*5+['refine']*3)
+
+
+class UnfixedScreeningTests(unittest.TestCase):
+    run_gate=SeedPolicyTests.run_gate
+    source=SeedPolicyTests.source
+    def test_seeds_get_their_own_search_when_no_combination_completed(self):
+        scope,calls,records=self.run_gate(['hunter'],fail_abilities=True)
+        # The original seed's search fails; every screened seed then gets a real search budget.
+        self.assertEqual(calls['search'][:2],[42,100])
+        self.assertEqual(self.search_options[1]['initial'],{})
+        self.assertEqual(self.search_options[1]['max_attempts'],12)
+        self.assertEqual(self.search_options[1]['patience'],6)
+
+
+class PreflightRejectionTests(unittest.TestCase):
+    """Code 30 = game not an idle lobby, nothing executed: release, wait, retry once more."""
+    def test_gate_releases_the_component_on_a_preflight_rejection(self):
+        gate=(ROOT/'device/phone_bootstrap_gate.py').read_text()
+        self.assertIn("preflight_rejected=(f[:4]==[1,1,1,1] and f[4]==30 and f[87]==1 and not any(f[80:83]))",gate)
+        self.assertIn("if not initialized and not clean_deal_failure and not preflight_rejected:raise",gate)
+        # Released and unloaded BEFORE the rejection is reported.
+        self.assertLess(gate.index("if call('release')!=1"),gate.index("if preflight_rejected:raise RuntimeError('resource preflight rejected"))
+        self.assertLess(gate.index("result['component_unloaded']=True"),gate.index("if preflight_rejected:raise RuntimeError('resource preflight rejected"))
+    def test_runner_waits_for_the_lobby_and_retries_the_same_step(self):
+        probe=SOURCE[SOURCE.index('        def probe(name,'):SOURCE.index("        status('calibrating'")]
+        self.assertIn("(result.get('resource_preflight_rejected') or result.get('publication_refused'))",probe)
+        self.assertIn("and result.get('component_unloaded') and preflight_retries[0]<PREFLIGHT_RETRIES",probe)
+        self.assertLess(probe.index('wait_idle_lobby(identity,progress=status,cancellation=cancellation,timeout=180)'),
+                        probe.index("return probe(name+'-p'+str(preflight_retries[0])"))
+        self.assertIn('PREFLIGHT_RETRIES=8',SOURCE)
+    def test_seed_search_stops_when_an_attempt_still_owns_the_game(self):
+        self.assertIn("if 'native attempt retained' in str(error) or 'still owns game' in str(error):",SOURCE)
+
+
+class ReproducibilityTests(unittest.TestCase):
+    run_gate=SeedPolicyTests.run_gate
+    source=SeedPolicyTests.source
+    def test_seed_plan_depends_on_the_match_not_the_saved_bytes(self):
+        tree=ast.parse(SOURCE)
+        nodes=[n for n in tree.body if isinstance(n,ast.Assign) and any(getattr(t,'id','')=='SEED_ATTEMPTS' for t in n.targets)]
+        nodes+=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('replay_key','seed_plan')]
+        scope=dict(hashlib=hashlib,json=__import__('json'));exec(compile(ast.Module(body=nodes,type_ignores=[]),'k','exec'),scope)
+        base=dict(replay_tag='T',source_html='/a.html',source_sha256='a'*64,decks=[dict(source_side='team',proposed_native_owner=0,cards=[dict(base_card_key='x',form='basic',source_level=11)])],
+                  actions=[dict(kind='play_card',source_tick_20hz=5,source_side='team',base_card_key='x',source_position={'x':1,'y':2})])
+        resaved=dict(base,source_html='/b.html',source_sha256='b'*64)
+        self.assertEqual(scope['replay_key'](base),scope['replay_key'](resaved))
+        moved=copy.deepcopy(base);moved['actions'][0]['source_tick_20hz']=6
+        self.assertNotEqual(scope['replay_key'](base),scope['replay_key'](moved))
+        plan=scope['seed_plan']('k',1,remembered=777)
+        self.assertEqual(plan[0],777);self.assertEqual(len(plan),61)
+        self.assertEqual(scope['seed_plan']('k',1)[:3],plan[1:4])
+    def test_closest_seed_is_remembered_and_tried_first_next_time(self):
+        scope,calls,records=self.run_gate(['hunter'],seeds=(1,2,3),differences={42:900,1:800,2:300,3:700})
+        memory=scope['seed_memory']
+        self.assertEqual(memory['match-key']['seed'],2);self.assertEqual(memory['match-key']['difference'],300)
+        # Next run of the same match: the remembered seed is offered first.
+        self.assertIsNone(self.remembered[0])
+        self.assertIn('if rank(tier,difference)<rank(previous.get(',SOURCE)
+        self.assertIn("seed_plan(match_key,original_seed,remembered=remembered_seed)",SOURCE)
+    def test_native_release_allows_a_task_that_never_entered(self):
+        native=(ROOT.parent/'official-web-replay/native_bootstrap_probe.cpp').read_text()
+        self.assertIn('(!probe->layout.freed&&!probe->resource_preflight_rejected&&probe->entered.load())',native)
+        gate=(ROOT/'device/phone_bootstrap_gate.py').read_text()
+        block=gate[gate.index("if result['publication']==0:"):gate.index("if result['publication']!=1:raise")]
+        self.assertLess(block.index("call('release')"),block.index("raise RuntimeError('publication refused"))
+        self.assertIn("result['publication_refused']=True",block)

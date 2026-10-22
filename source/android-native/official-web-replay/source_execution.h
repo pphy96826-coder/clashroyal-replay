@@ -292,7 +292,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
         if(!c.readable(root,0x418)){result.error=105;break;}
         result.available=reinterpret_cast<int(*)(void*,int)>(b+0x120c810)(reinterpret_cast<void*>(root),1);
         result.raw_elixir=field<int>(root+0x300);
-        void* command=nullptr;int slot=-1;unsigned packed=0;
+        void* command=nullptr;int slot=-1;unsigned packed=0;std::string ability_info;
         if(event.kind==153){
             // Source HTML identifies the card, not a private slot. The plain
             // cycle model's slot is only an inference; always resolve the
@@ -339,6 +339,14 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
                 // candidate list, NEVER a stale pointer or guessed source ID.
                 actor=actors[event.ability_choice];
             }else if(event.ability_choice>0){result.error=112;result.native_code=eligible;break;}
+            // Diagnostic only: which hero the ability went to and who else was eligible.
+            auto describe=[&](uintptr_t object){
+                auto definition=field<uintptr_t>(object+0x48);
+                return "{\"id\":"+std::to_string(c.readable(definition,0x48)?field<unsigned>(definition+0x40):0u)+
+                       ",\"x\":"+std::to_string(field<int>(object+0x7c))+",\"y\":"+std::to_string(field<int>(object+0x80))+'}';};
+            ability_info=",\"actor\":"+describe(actor)+",\"eligible\":[";
+            for(size_t k=0;k<actors.size();++k){if(k)ability_info+=',';ability_info+=describe(actors[k]);}
+            ability_info+=']';
             command=malloc(56);if(!command){result.error=109;break;}
             reinterpret_cast<void(*)(void*,void*,void*)>(b+0xf9fcac)(command,reinterpret_cast<void*>(c.services),reinterpret_cast<void*>(actor));
         }else{result.error=113;break;}
@@ -358,7 +366,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
         if(!trace_command(c,result,command,event.kind)){result.error=116;delete_command(c,command);break;}
         if(!first){commands+=',';diagnostics+=',';}first=false;
         commands+="{\"ct\":"+std::to_string(event.kind)+",\"c\":"+text+'}';
-        diagnostics+="{\"index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(event.tick)+",\"owner\":"+std::to_string(event.owner)+",\"card\":"+std::to_string(event.id)+",\"slot\":"+std::to_string(slot)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"packed\":"+std::to_string(packed)+'}';
+        diagnostics+="{\"index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(event.tick)+",\"owner\":"+std::to_string(event.owner)+",\"card\":"+std::to_string(event.id)+",\"slot\":"+std::to_string(slot)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"packed\":"+std::to_string(packed)+ability_info+'}';
         // Queue now owns the native command; normal step executes it. The
         // native append retains the caller's pointer: do not delete it here.
         reinterpret_cast<void(*)(void*,void**)>(b+0xf9ab04)(reinterpret_cast<void*>(field<uintptr_t>(d+0x38)),&command);

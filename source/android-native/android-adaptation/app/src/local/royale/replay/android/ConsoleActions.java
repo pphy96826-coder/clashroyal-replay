@@ -33,10 +33,12 @@ final class ConsoleActions {
     static double speed(){return SPEEDS[speedIndex];}
     /** Seed search in progress: the user ends it and plays the closest result found so far. */
     static boolean seedSearching(JSONObject state){return state.optString("state","").equals("simulating")&&state.optBoolean("seed_search_active",false);}
+    /** Hunter/Skeleton King decks: closest ability combination search (before seeds). */
+    static boolean abilityMatching(JSONObject state){return state.optBoolean("ability_search_active",false);}
     static String stopSeedSearch(Context context)throws Exception{
         File stop=new File(PlaybackStatus.activeDirectory(context),"seed-stop-request.json");
         if(!stop.exists())MainActivity.write(stop,new JSONObject().put("use_closest_so_far",true).put("requested_at",System.currentTimeMillis()/1000).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        return "已请求停止随机种子匹配：当前这个种子跑完后（最多约十几秒）用最接近的结果继续校验并开播。";
+        return "已请求停止匹配：当前这次预演跑完后（最多约十几秒）用最接近的结果继续校验并开播。";
     }
     /**
      * Failsafe chosen explicitly by the user (two taps): stop every replay runner,
@@ -49,11 +51,15 @@ final class ConsoleActions {
         String runners="pgrep -f 'libphone_runtim[e][.]so'";
         StandaloneDoctor.root("for p in $("+runners+"); do kill -9 $p; done",10);
         PlaybackService.resetAll(context);
-        StandaloneDoctor.root("am force-stop "+StandaloneDoctor.GAME,15);
+        // A game left stopped (state T) by an interrupted debugger is first resumed
+        // so force-stop can end it; this explicit failsafe may then kill it outright.
+        String resume="for p in $(pidof "+StandaloneDoctor.GAME+"); do kill -CONT $p; done";
+        StandaloneDoctor.root(resume+"; am force-stop "+StandaloneDoctor.GAME,15);
         for(int i=0;i<20;i++){
             StandaloneDoctor.Output left=StandaloneDoctor.root(runners+" || true",5);
             StandaloneDoctor.Output game=StandaloneDoctor.root("pidof "+StandaloneDoctor.GAME+" || printf NONE",5);
             if(left.code==0&&left.text.trim().isEmpty()&&game.text.trim().equals("NONE"))break;
+            if(i==6)StandaloneDoctor.root("for p in $(pidof "+StandaloneDoctor.GAME+"); do kill -CONT $p; kill -9 $p; done",10);
             if(i==19)throw new IOException("仍有回放进程或游戏未退出；请稍后再点一次");
             Thread.sleep(500);
         }
@@ -65,6 +71,58 @@ final class ConsoleActions {
         synchronized(ConsoleActions.class){starting=false;}
         playWhenReady="";switchRequested=false;outcomes.clear();tried.clear();autoFailed.clear();
         return "已重置所有回放进程并关闭游戏；队列保留。重新打开游戏进入大厅后再播放。";
+    }
+    /**
+     * Some VM ROMs (seen in 虚拟大师 Android 12) spin their fingerprint HAL at a full
+     * core forever, which starves the game. Freeze ONLY that service (SIGSTOP), and
+     * only while it is really busy (>=50% of a core over 2 s). It is never stopped or
+     * killed: 虚拟大师's health monitor treats a dead HAL as a core-process crash.
+     * A frozen HAL uses no CPU; settings stay untouched and the next VM boot resets it.
+     */
+    static final String FINGERPRINT_HAL="android.hardware.biometrics.fingerprint@2.1-service";
+    static String stopBusyFingerprint()throws Exception{
+        String script="p=$(pidof "+FINGERPRINT_HAL+"); [ -z \"$p\" ] && { echo NONE; exit 0; }; "
+            +"[ \"$(awk '{print $3}' /proc/$p/stat)\" = T ] && { echo FROZEN; exit 0; }; "
+            +"t(){ awk '{print $14+$15}' /proc/$p/stat 2>/dev/null || echo 0; }; a=$(t); sleep 2; b=$(t); echo BUSY $((b-a)); "
+            +"[ $((b-a)) -lt 100 ] && exit 0; "
+            +"kill -STOP $p 2>&1; sleep 1; "
+            +"if [ -d /proc/$p ]; then echo STATE $(awk '{print $3}' /proc/$p/stat); else echo GONE; fi";
+        String out=StandaloneDoctor.root(script,15).text;
+        if(out.contains("NONE"))return "未发现指纹服务进程；无需处理。";
+        if(out.contains("FROZEN"))return "指纹服务已处于冻结状态（不占用 CPU）；无需处理。";
+        java.util.regex.Matcher busy=java.util.regex.Pattern.compile("BUSY (\\d+)").matcher(out);
+        int ticks=busy.find()?Integer.parseInt(busy.group(1)):-1;
+        if(ticks>=0&&ticks<100)return "指纹服务当前不忙（2 秒内占用约 "+ticks/2+"% 单核）；未处理。";
+        if(out.contains("STATE T"))return "已冻结卡住的指纹服务（不再占用 CPU，进程保留，不会触发虚拟机崩溃提示）；虚拟机重启后恢复。";
+        return "未能冻结指纹服务。原始结果："+out.trim().replace('\n',' ');
+    }
+    /**
+     * Explicit two-tap cleanup, refused while any replay runner exists. Removes what
+     * earlier console builds and finished tasks left behind: runtime folders of other
+     * builds, task records except the active task, tool self-checks, and staged
+     * component copies in /data/local/tmp that the game no longer maps. Queue, saved
+     * replay, settings and the current runtime are kept.
+     */
+    static String cleanStorage(Context context)throws Exception{
+        File files=context.getFilesDir();String path=files.getAbsolutePath();
+        if(!path.matches("/data/(user/0|data)/local[.]royale[.]replay[.]android/files"))throw new IOException("控制台数据目录异常；未清理");
+        String python=NativePython.runtimeFolder(context,"python-runtime.sha256","python-");
+        String tools=NativePython.runtimeFolder(context,"android-tools.sha256","android-tools-");
+        String task="none";
+        try{java.util.regex.Matcher m=java.util.regex.Pattern.compile("local-imports/([a-f0-9-]{36})/").matcher(new JSONObject(MainActivity.text(new File(files,"phone-active.json"),8192)).optString("directory",""));if(m.find())task=m.group(1);}catch(Exception ignored){}
+        String script="pgrep -f 'libphone_runtim[e][.]so' >/dev/null && { echo BUSY; exit 0; }; F="+path+"; "
+            +"sz(){ du -sk $F /data/local/tmp 2>/dev/null | awk '{s+=$1}END{print s+0}'; }; b=$(sz); "
+            +"for d in $F/python-* $F/android-tools-*; do [ -d \"$d\" ] || continue; n=${d##*/}; [ \"$n\" = "+python+" ] || [ \"$n\" = "+tools+" ] || rm -rf \"$d\"; done; "
+            +"for d in $F/local-imports/*; do [ -d \"$d\" ] || continue; [ \"${d##*/}\" = "+task+" ] || rm -rf \"$d\"; done; "
+            +"rm -rf $F/tool-checks; "
+            +"g=$(pidof "+StandaloneDoctor.GAME+"); for d in /data/local/tmp/royale-phone-*; do [ -d \"$d\" ] || continue; [ -n \"$g\" ] && grep -q \"$d\" /proc/$g/maps && continue; rm -rf \"$d\"; done; "
+            +"echo FREED $((b-$(sz)))";
+        String out=StandaloneDoctor.root(script,120).text;
+        if(out.contains("BUSY"))return "有回放正在准备或播放；为避免误删正在用的文件，未清理。请等结束或先重置再清理。";
+        java.util.regex.Matcher freed=java.util.regex.Pattern.compile("FREED (-?\\d+)").matcher(out);
+        if(!freed.find())throw new IOException("清理结果未知："+out.trim());
+        long kb=Math.max(0,Long.parseLong(freed.group(1)));
+        return "已清理旧运行环境和过期任务记录，释放约 "+(kb/1024)+" MB；队列、已保存回放和当前任务保留。";
     }
     static String speedLabel(){return "播放倍速："+SPEEDS[speedIndex]+"×";}
     /** Applies to rows prepared from now on; a row already prepared keeps its speed (shown on the row). */
@@ -288,7 +346,7 @@ final class ConsoleActions {
                 :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";
             return new String[]{"下一场已就绪",check+"点「播放下一个」约 15 秒开播；游戏客户端不重启时约 2 小时内有效。"};
         }
-        if(seedSearching(state))return new String[]{"正在匹配随机种子",state.optString("message","")};
+        if(seedSearching(state))return new String[]{abilityMatching(state)?"正在匹配技能目标":"正在匹配随机种子",state.optString("message","")};
         return new String[]{wanted?"准备中 · 完成后自动开播":"正在提前准备下一场",
             (phase.equals("calibrating")?"校准原生发牌":phase.equals("simulating")?"预演整局":phase.equals("validating")?"核对全部指令":"读取资源并等待大厅")+(wanted?"；不用再点。":"；只做准备，不会自动开播。")};
     }
@@ -311,7 +369,7 @@ final class ConsoleActions {
             if(id.equals(armed)){
                 String at=PlaybackService.armedSpeed()==speed()?"":"("+PlaybackService.armedSpeed()+"×)";
                 if(phase.equals("ready_to_open"))label=id.equals(playWhenReady)?"正在开播":readyLabel(armedState)+at;
-                else if(seedSearching(armedState))label="准备中·匹配随机种子";
+                else if(seedSearching(armedState))label=abilityMatching(armedState)?"准备中·匹配技能目标":"准备中·匹配随机种子";
                 else if(phase.equals("calibrating"))label="准备中·校准发牌";
                 else if(phase.equals("simulating"))label="准备中·预演整局";
                 else if(phase.equals("validating"))label="准备中·核对指令";

@@ -34,6 +34,12 @@ public final class NativePython {
         }
         if(count<10)throw new IOException("incomplete runtime manifest");
     }
+    /** Folder name this build unpacks an embedded archive into (prefix + first 16 hash chars). */
+    static String runtimeFolder(Context context,String digestName,String prefix)throws Exception {
+        String expected=new String(MainActivity.read(context.getAssets().open(digestName),256),StandardCharsets.US_ASCII).trim();
+        if(!expected.matches("[a-f0-9]{64}"))throw new IOException("missing embedded runtime hash");
+        return prefix+expected.substring(0,16);
+    }
     private static File unpack(Context context,String archiveName,String digestName,String prefix,int archiveLimit,long expandedLimit)throws Exception {
         String expected=new String(MainActivity.read(context.getAssets().open(digestName),256),StandardCharsets.US_ASCII).trim();
         if(!expected.matches("[a-f0-9]{64}"))throw new IOException("missing embedded runtime hash");

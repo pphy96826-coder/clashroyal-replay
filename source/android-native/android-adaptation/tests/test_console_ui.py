@@ -8,7 +8,7 @@ JAVA=ROOT/'app/src/local/royale/replay/android'
 class ConsoleTests(unittest.TestCase):
     def test_main_has_three_primary_and_terminal_contextual_actions(self):
         main=(JAVA/'MainActivity.java').read_text()
-        self.assertEqual(main.count('button(root,'),14)  # Queue actions, floating toggle, read-only diagnostic export, reset-all failsafe.
+        self.assertEqual(main.count('button(root,'),16)  # Queue actions, floating toggle, read-only diagnostic export, reset-all failsafe, busy fingerprint HAL stop.
         self.assertIn('添加多个 HTML 到队列',main)
         self.assertIn('queueImporting',main)
         for old in ('doctor();','localBuild();','fixture();','pairing.json','status-','请求原生播放','等待电脑'):
@@ -221,7 +221,10 @@ class ResetAllTests(unittest.TestCase):
         pattern='libphone_runtim[e][.]so'
         self.assertIsNone(re.search(pattern,"su -c for p in $(pgrep -f '"+pattern+"'); do kill -9 $p; done"))
         self.assertIsNotNone(re.search(pattern,'/data/app/x/lib/arm64/libphone_runtime.so play /a /b /c /d'))
-        self.assertIn('"am force-stop "+StandaloneDoctor.GAME',actions)
+        self.assertIn('resume+"; am force-stop "+StandaloneDoctor.GAME',actions)
+        # A debugger-frozen (state T) game is resumed first, then killed if force-stop cannot end it.
+        self.assertIn('kill -CONT $p; done";',actions)
+        self.assertIn('kill -CONT $p; kill -9 $p; done',actions)
 
     def test_reset_archives_instead_of_deleting_and_keeps_queue(self):
         actions=self.source('ConsoleActions.java')
@@ -279,3 +282,38 @@ class AutoPrepareLoopTests(unittest.TestCase):
         self.assertIn('outcomes.put(queueId,title);autoFailed.add(queueId);',actions)
         self.assertIn('}else{synchronized(ConsoleActions.class){autoFailed.remove(id);}}',actions)  # explicit play clears it
         self.assertIn('tried.clear();autoFailed.clear();',actions)  # reset clears it
+
+
+class BusyFingerprintTests(unittest.TestCase):
+    def test_only_a_busy_fingerprint_hal_is_frozen_never_killed(self):
+        root=Path(__file__).resolve().parents[1]/'app/src/local/royale/replay/android'
+        actions=(root/'ConsoleActions.java').read_text()
+        block=actions[actions.index('static String stopBusyFingerprint'):actions.index('static String speedLabel')]
+        # Measured over 2 s before acting; under one core-second (100 ticks) nothing is touched.
+        self.assertLess(block.index('sleep 2; b=$(t)'),block.index('kill -STOP $p'))
+        self.assertIn('[ $((b-a)) -lt 100 ] && exit 0;',block)
+        # Frozen only: a stopped/killed HAL is reported by the VM as a core-process crash.
+        for forbidden in ('ctl.stop','kill -9','settings put','pm disable'):self.assertNotIn(forbidden,block)
+        self.assertIn('android.hardware.biometrics.fingerprint@2.1-service',actions)
+        for name in ('FloatingConsole.java','MainActivity.java'):
+            source=(root/name).read_text()
+            self.assertIn('ConsoleActions.stopBusyFingerprint()',source)
+            self.assertIn('冻结卡顿的指纹服务',source)
+
+
+class StorageCleanupTests(unittest.TestCase):
+    def test_cleanup_keeps_current_runtime_active_task_and_refuses_while_running(self):
+        root=Path(__file__).resolve().parents[1]/'app/src/local/royale/replay/android'
+        actions=(root/'ConsoleActions.java').read_text()
+        block=actions[actions.index('static String cleanStorage'):actions.index('static String speedLabel')]
+        # Nothing is removed while a runner exists.
+        self.assertTrue(block.index("pgrep -f 'libphone_runtim[e][.]so' >/dev/null && { echo BUSY; exit 0; }")<block.index('rm -rf'))
+        self.assertIn('NativePython.runtimeFolder(context,"python-runtime.sha256","python-")',block)
+        self.assertIn('NativePython.runtimeFolder(context,"android-tools.sha256","android-tools-")',block)
+        self.assertIn('local-imports/([a-f0-9-]{36})/',block)
+        # Components still mapped by the game are kept; queue and saved replay are never named.
+        self.assertIn('grep -q \\"$d\\" /proc/$g/maps && continue',block)
+        for kept in ('replay-queue','source.html','phone-requests'):self.assertNotIn(kept,block)
+        main=(root/'MainActivity.java').read_text()
+        self.assertIn('ConsoleActions.cleanStorage(MainActivity.this)',main)
+        self.assertIn('5 秒内再点一次：删除旧运行环境和过期任务记录',main)

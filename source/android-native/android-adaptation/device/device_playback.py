@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -37,7 +38,31 @@ PREPARE_AHEAD_SECONDS=7200
 # King or Hunter are eligible. All other decks keep the original seed even
 # when HP differs; mismatch alone is not evidence of randomness.
 SEED_ATTEMPTS=60
+# Screening runs each seed ONCE with the chosen abilities. Measured on MuMu: a seed
+# whose fixed combination dies (battle settles early / hero absent) is far from the
+# page anyway, and re-walking its ability prefix from the root never completed
+# within a few runs (16 abilities). Depth is spent only on the refined seeds.
+SCREEN_RUNS=1
+SCREEN_RUNS_UNFIXED=12  # no completed combination at the original seed to start from
+REFINE_SEEDS=3   # closest screened seeds that get a deeper ability search
+REFINE_RUNS=24
 PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different','unknown')
+# Phone VMs: the local debugger sometimes loses the game while interrupting it
+# (reported as exited / interrupted by SIGSTOP / task never observed done).
+# That says nothing about the replay. Such an attempt is released with the
+# game process and the SAME preparation step reruns in a fresh client.
+DEBUGGER_LOSS_MARKERS=('original task remains pending','native process state','Expression execution was interrupted',
+                       'execution stopped with unexpected state','stop for observation failed','resume failed',
+                       'resume after game signal failed')
+# Restarts continue only while the search progresses: at least one native step
+# completed since the previous restart. The total is still bounded.
+DEBUGGER_LOSS_RESTARTS=64
+PREFLIGHT_RETRIES=8   # code-30 rejections (game not an idle lobby) retried after waiting for it
+
+
+def debugger_lost(receipt):
+    errors=receipt.get('errors') or []
+    return bool(errors) and all(any(marker in str(error) for marker in DEBUGGER_LOSS_MARKERS) for error in errors)
 
 
 def seed_search_policy(source, tier):
@@ -89,14 +114,25 @@ def page_comparison(source, preparation, report):
     return 'different',difference
 
 
-def seed_plan(source_sha256, original, count=SEED_ATTEMPTS):
-    """Deterministic, reproducible int32 seeds derived from the source hash."""
-    seeds=[]
+def replay_key(source):
+    """Identity of the MATCH, not of the saved HTML bytes: re-saving the same
+    replay page changes the file hash but not the tag, decks or any play."""
+    decks=sorted((d['source_side'],d['proposed_native_owner'],d.get('tower'),
+                  [(c.get('base_card_key'),c.get('form'),c.get('source_level')) for c in d['cards']]) for d in source['decks'])
+    actions=[(a['kind'],a['source_tick_20hz'],a['source_side'],a.get('base_card_key'),a.get('source_position')) for a in source['actions']]
+    return hashlib.sha256(json.dumps([source['replay_tag'],decks,actions],sort_keys=True,ensure_ascii=False,default=str).encode()).hexdigest()
+
+
+def seed_plan(match_key, original, count=SEED_ATTEMPTS, remembered=None):
+    """Deterministic int32 seeds derived from the match identity (see replay_key).
+    A seed remembered from an earlier run of the same match is tried first."""
+    seeds=[remembered] if type(remembered) is int and remembered!=original else []
+    target=count+len(seeds)
     for n in range(count*4):
-        value=int.from_bytes(hashlib.sha256((source_sha256+':seed:'+str(n)).encode()).digest()[:4],'big')
+        value=int.from_bytes(hashlib.sha256((match_key+':seed:'+str(n)).encode()).digest()[:4],'big')
         value=value-2**32 if value>=2**31 else value
         if value!=original and value not in seeds:seeds.append(value)
-        if len(seeds)==count:break
+        if len(seeds)>=target:break
     return seeds
 
 
@@ -105,6 +141,32 @@ def read(path):return json.loads(path.read_text())
 
 def write_new(path, value):
     with path.open('x') as stream:json.dump(value,stream,ensure_ascii=False,indent=2)
+
+
+# Linux SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU (bit n-1 of /proc pending masks).
+STOP_SIGNAL_MASK=sum(1<<(n-1) for n in (19,20,21,22))
+
+
+def release_stray_stop(pid):
+    """Our debugger interrupts the game with SIGSTOP. When that races a task
+    finishing, one SIGSTOP can stay queued past detach and later freeze the
+    game (state T, no tracer) or interrupt the next native call. Only when NO
+    tracer is attached, SIGCONT clears every queued stop signal and resumes a
+    stopped game; it does nothing to a running one. Returns what was found."""
+    found=[]
+    try:tasks=sorted((Path('/proc')/str(pid)/'task').iterdir())
+    except OSError:return None  # gone: nothing to resume
+    for task in tasks:
+        try:
+            stat=(task/'stat').read_text();status=(task/'status').read_text()
+        except OSError:continue
+        fields=dict(line.split(':',1) for line in status.splitlines() if ':' in line)
+        if fields.get('TracerPid','0').strip()!='0':return None  # a debugger owns it: never touch
+        state=stat[stat.rindex(')')+2]
+        pending=(int(fields.get('SigPnd','0').strip(),16)|int(fields.get('ShdPnd','0').strip(),16))&STOP_SIGNAL_MASK
+        if state=='T' or pending:found.append(dict(tid=int(task.name),state=state,pending_stop=hex(pending)))
+    if found:os.kill(pid,signal.SIGCONT)
+    return found
 
 
 def game_foreground():
@@ -156,7 +218,8 @@ class EventDebugger:
     """Embedded LLDB has no CLI event thread to advance its PUBLIC state.
 
     Removing listener events commits running/stopped transitions. Never ignore
-    a signal or auto-resume a crash; only deliver already emitted events.
+    a signal or auto-resume a crash; only deliver already emitted events (the
+    gates alone hand a game-runtime signal back, see signal_policy).
     """
     def __init__(self,debugger,lldb):
         self.core=debugger;self.lldb=lldb;self.thread=None;self.stop=threading.Event();self.error=None
@@ -204,6 +267,8 @@ class Debugger:
         session.verify()
         status=(session.proc/'status').read_text()
         if 'TracerPid:\t0' not in status.splitlines():raise RuntimeError('another debugger owns game')
+        stray=release_stray_stop(identity['pid'])
+        if stray:write_new(directory/((receipt or attempt)+'-stray-stop-before.json'),stray)
         # Fresh verification before attaching the exact pinned generation.
         for pin in binding['pins']:
             if hashlib.sha256(session.read(int(pin['address'],0),pin['size'])).hexdigest()!=pin['sha256']:
@@ -234,6 +299,14 @@ class Debugger:
                 if process.GetState()==lldb.eStateRunning:process.Stop()
                 if not process.Detach().Success():raise RuntimeError('detach failed; preserve native owner')
             self.debugger.DeleteTarget(target)
+            # A tracer that has gone (detached, or lldb-server lost the process)
+            # must not leave a queued SIGSTOP behind to freeze the game.
+            for _ in range(20):
+                stray=release_stray_stop(identity['pid'])
+                if stray is not None:break
+                time.sleep(.1)
+            if stray:
+                with contextlib.suppress(FileExistsError):write_new(directory/((receipt or attempt)+'-stray-stop-after.json'),stray)
 
 
 def lldb_mmap_addresses(lldb,target):
@@ -423,8 +496,14 @@ def recover_failed_attempt(directory,attempt,identity):
     """User-authorized failure recovery; exact detached owner, no blanket kill."""
     binding=read(directory/(attempt+'-binding.json'))
     result=read(directory/(attempt+'-result.json'))
-    if binding['identity']!=identity or not result.get('detached'):
+    # lldb may lose a SIGSTOP-interrupted game (reported as exited) without a
+    # Detach receipt; the kernel has then released it. Only an attached tracer blocks recovery.
+    detached=result.get('detached');tracer_gone=False
+    if binding['identity']==identity and not detached and not generation_released(identity):
+        tracer_gone='TracerPid:\t0' in (Path('/proc')/str(identity['pid'])/'status').read_text().splitlines()
+    if binding['identity']!=identity or not (detached or tracer_gone):
         raise RuntimeError('失败现场代际不一致或调试器未退出；未自动关闭游戏')
+    if tracer_gone:release_stray_stop(identity['pid'])
     if generation_released(identity):return 'already_released'
     if result.get('component_unloaded'):return 'already_clean'
     component=read(directory/(attempt+'-component.json'))['device_path']
@@ -637,11 +716,53 @@ def run(request_path,destination,prefix):
         debugger=Debugger(prefix)
         def cancellation():
             if (destination/'stop-request.json').exists():raise Cancelled('cancelled before next native task')
+        restarts=[];progress=[1]  # native steps completed since the last client restart
+        preflight_retries=[0]
+        first_preparation=preparation
+        def restart_client(name):
+            """Release a debugger-lost attempt with its game process, then bind a
+            fresh client and fresh runtime; the replay preparation must not change."""
+            nonlocal identity,preparation,prep
+            recovered=recover_failed_attempt(destination,name,identity)
+            if not generation_released(identity):raise RuntimeError('debugger lost the game but its process was not released')
+            number=len(restarts)+1
+            status('simulating','本机调试器第 '+str(number)+' 次失去游戏进程（虚拟机偶发，与回放内容无关）；已重启游戏，回到大厅后从当前步骤继续，已完成的预演保留。')
+            deadline=time.monotonic()+300
+            while True:
+                cancellation()
+                try:
+                    fresh=bind(Path(request['apk']));require_idle_lobby(scene_state(fresh));break
+                except MapsSnapshotError:raise
+                except (FileNotFoundError,subprocess.CalledProcessError,ValueError):
+                    if time.monotonic()>=deadline:raise Cancelled('restarted client did not reach its idle lobby')
+                    time.sleep(2)
+            fresh_preparation=destination/('native-preparation-r'+str(number))
+            metadata(source,fresh_preparation,Path(request['apk']))
+            observation=read(fresh_preparation/'runtime/runtime-observation.json')
+            require_idle_lobby(observation['scene_state'])
+            stable=lambda value:{k:v for k,v in value.items() if not k.endswith('_evidence_sha256')}
+            if stable(read(fresh_preparation/'preparation.json'))!=stable(read(first_preparation/'preparation.json')):
+                raise RuntimeError('restarted client prepared this replay differently; not continuing')
+            restarts.append(dict(attempt=name,recovered=recovered,old_pid=identity['pid'],new_pid=observation['identity']['pid'],at=time.time()))
+            write_new(destination/('client-restart-'+str(number)+'.json'),restarts[-1])
+            identity=observation['identity'];preparation=fresh_preparation
+            context.update(game_pid=identity['pid'],game_start_time=identity['process_start_time'],client_restarts=len(restarts))
+            current_prep()
+        def current_prep():
+            """Inputs compile against the CURRENT client's runtime: a preparation
+            made before a client restart is copied unchanged next to it."""
+            nonlocal prep
+            if prep.parent==preparation:return
+            moved=preparation/prep.name
+            if not moved.exists():write_new(moved,read(prep))
+            elif read(moved)!=read(prep):raise RuntimeError('preparation name collision after client restart')
+            prep=moved
         def probe(name,*,execute=False,native=None,scene=False,candidate=False):
             nonlocal last_attempt
             # Prepare/bind immediately before every component; never migrate old
             # input owners if the client has restarted in the meantime.
             cancellation();ReadOnlySession(identity).verify()
+            current_prep()
             build=destination/(name+'-build')
             compile_component(prep,build,prefix,run_source=execute,native_replay=native,scene=scene,speed=speed)
             publish_inputs(destination,build,preparation/'runtime',name)
@@ -650,6 +771,18 @@ def run(request_path,destination,prefix):
                 context['native_entry_started']=True
             result=debugger.run(destination,name,scene=scene)
             last_attempt=name
+            if not scene and debugger_lost(result) and len(restarts)<DEBUGGER_LOSS_RESTARTS and progress[0]:
+                progress[0]=0
+                restart_client(name)
+                return probe(name+'-r'+str(len(restarts)),execute=execute,native=native,candidate=candidate)
+            # The game was briefly not an idle lobby; nothing ran and the component was
+            # released, so waiting for the lobby and running the same step again is safe.
+            if (not scene and (result.get('resource_preflight_rejected') or result.get('publication_refused'))
+                    and result.get('component_unloaded') and preflight_retries[0]<PREFLIGHT_RETRIES):
+                preflight_retries[0]+=1
+                status('simulating','游戏短暂不在空闲大厅，本步未执行任何原生操作；等待大厅稳定后重试这一步（第 '+str(preflight_retries[0])+' 次）。')
+                wait_idle_lobby(identity,progress=status,cancellation=cancellation,timeout=180)
+                return probe(name+'-p'+str(preflight_retries[0]),execute=execute,native=native,candidate=candidate)
             if scene and not result.get('errors') and result.get('detached') and not result.get('native_replay_scene_present'):
                 if result.get('fields',[0]*48)[5]!=1:raise RuntimeError('scene was not submitted')
                 status('waiting_foreground','原生场景已提交，但后台尚未生成可播放画面；可点“返回游戏观看”完成加载。未自动跳转，也不重复提交。')
@@ -664,6 +797,7 @@ def run(request_path,destination,prefix):
                 if not result.get('detached') or not result.get('source_bootstrap_verified') or not result.get('component_unloaded'):
                     checked_receipt(result,execute=True)
             else:checked_receipt(result,execute=execute,scene=scene)
+            progress[0]+=1
             return result
         status('calibrating','手机本机：核验原生初始发牌和安全释放。')
         delayed=copy.deepcopy(shifted)
@@ -677,7 +811,8 @@ def run(request_path,destination,prefix):
             shifted=aligned
         else:raise RuntimeError('原生牌序有界校准未通过；没有执行源指令')
         status('simulating','手机原生引擎：完整执行全部下牌和技能。')
-        from ability_search import search,terminal_hp_matches
+        from ability_search import search,terminal_hp_matches,damage_lower_bound
+        def hp_bound(candidate,result):return damage_lower_bound(read(source),candidate,result)
         selected_candidate={}
         attempt_prefix=''
         # The user may end either search at any time and play the closest
@@ -688,13 +823,31 @@ def run(request_path,destination,prefix):
         def restore(search_result):
             chosen=search_result['attempts'][search_result['chosen_attempt']]['evidence']['attempt']
             selected_candidate.clear();selected_candidate.update(snapshots[chosen])
+        # Hunter/Skeleton King decks: a wrong ability target changes the battle far
+        # more than the shared random seed. Among fully executed ability
+        # combinations (original seed) keep the one with the smallest summed
+        # per-tower HP difference over all six towers, then search seeds with
+        # that combination fixed. Other decks keep the strict exact-HP rule.
+        closest_abilities=seed_search_policy(read(source),'different')['allowed']
+        closest_best={}
+        def hp_key(candidate,result):
+            tier,difference=page_comparison(read(source),candidate,result)
+            key=(difference if difference is not None else 1<<40,PAGE_MATCH_TIERS.index(tier))
+            if not attempt_prefix and (not closest_best or key<closest_best['key']):closest_best.update(key=key,tier=tier,difference=difference)
+            return key
         def execute_candidate(candidate,number):
             nonlocal prep
             prep=preparation/(attempt_prefix+'ability-candidate-'+str(number)+'.json');write_new(prep,candidate)
             name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else ('bootstrap-v3' if number==0 else 'ability-candidate-'+str(number))
-            if not attempt_prefix:status('simulating','完整预演技能目标候选 '+str(number+1)+'；优先选终局塔血与网页一致的候选。'+
+            if not attempt_prefix and closest_abilities:
+                found=('当前最接近的完整组合：六塔血差合计 '+str(closest_best['difference'])+'。可随时点「停止匹配，用当前最接近的开播」。') if closest_best.get('difference') is not None else \
+                      ('已有完整组合（终局无法完整比对）。可随时停止匹配并开播。' if closest_best else '尚无完整执行的组合；有完整组合后才能停止匹配开播。')
+                status('simulating','技能目标匹配：完整预演候选 '+str(number+1)+'。卡组含猎人/骷髅之王，先选六塔血差最小的技能组合，再匹配随机种子。'+found,
+                       seed_search_active=bool(closest_best),ability_search_active=True)
+            elif not attempt_prefix:status('simulating','完整预演技能目标候选 '+str(number+1)+'；优先选终局塔血与网页一致的候选。'+
                 '技能目标必须与网页完全一致。')
             candidate_receipt=probe(name,execute=True,candidate=True)
+            name=last_attempt  # a client restart reruns the step under a suffixed name
             selected_candidate.update(receipt=candidate_receipt,preparation=prep)
             snapshots[name]=dict(receipt=candidate_receipt,preparation=prep)
             return read(destination/(name+'-source-execution.json')),dict(attempt=name,preparation=str(prep))
@@ -712,16 +865,19 @@ def run(request_path,destination,prefix):
             status('validating','诊断预览：仅播放已成功执行的前缀，在原生分歧点暂停；不是完整回放。')
         else:
             # Ability targets must match exactly: an ambiguous branch is accepted only
-            # when the whole battle ends at the page's tower HP (no closest fallback).
-            # Exhaustion permits alternate seeds ONLY under the deck allowlist;
-            # every eligible seed still runs the same strict ability search.
+            # when the whole battle ends at the page's tower HP. Exception: Hunter/
+            # Skeleton King decks keep the closest complete combination (above), and
+            # each alternate seed reruns that combination first.
             ability_error=None
             original_seed=aligned['initialization_only']['rndSeed']
             try:
                 aligned,execution,search_result=search(aligned,execute_candidate,
                     lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
-                    cancelled=lambda:(destination/'stop-request.json').exists())
+                    cancelled=lambda:(destination/'stop-request.json').exists(),bound=hp_bound,
+                    closest=hp_key if closest_abilities else None,stop_early=seed_stop if closest_abilities else lambda:False,
+                    patience=24 if closest_abilities else None)
                 restore(search_result)
+                context.update(ability_closest_selected=bool(search_result.get('closest_selected')))
             except Exception as error:
                 if hasattr(error,'search_report'):write_new(destination/'ability-search.json',error.search_report)
                 if not getattr(error,'search_report',{}).get('explored_branches_exhausted'):raise
@@ -741,53 +897,120 @@ def run(request_path,destination,prefix):
                              original_ability_branches_matched=ability_error is None,policy=seed_policy)
             # The user may end the search at any time and play the closest result so far.
             tier_names=dict(exact='完全一致',same_towers='终局近似',same_winner='仅胜负相同',different='不符',unknown='无法完整比对')
+            match_key=replay_key(read(source));memory_path=files/'seed-memory.json'
+            try:seed_memory=read(memory_path) if memory_path.is_file() else {}
+            except (OSError,ValueError):seed_memory={}
+            remembered=seed_memory.get(match_key) if isinstance(seed_memory.get(match_key),dict) else {}
+            remembered_seed=remembered.get('seed') if remembered.get('tier') in PAGE_MATCH_TIERS[:3] else None
+            seed_report.update(match_key=match_key,remembered_seed=remembered_seed)
+            fixed_choices=dict(aligned.get('ability_target_choices') or {}) if ability_error is None else {}
+            seed_report['fixed_ability_choices']=fixed_choices if closest_abilities else None
             if seed_policy['search_needed']:
                 card_names='、'.join('骷髅之王' if card=='skeleton-king' else '猎人' for card in seed_policy['eligible_cards'])
                 if ability_error is not None:status('simulating','原种子下技能目标没有与网页完全一致的分支；卡组含'+card_names+'，按策略尝试其他种子（技能目标仍要求完全一致，不代表已确认差异来自随机性）。')
-                for number,seed in enumerate(seed_plan(request['source_sha256'],original_seed)):
+                # Successive halving. Screening: every seed gets ONE deal probe and one
+                # full run (the calibrated deal is predicted from that probe; the run
+                # itself verifies it and a mismatch falls back to normal calibration).
+                # Refinement: only the closest few seeds get a deeper ability search.
+                screened=[]
+                def nonlocal_prep_write(path,value):
+                    nonlocal prep
+                    write_new(path,value);prep=path
+                def calibrated(number,seed,optimistic):
+                    trial=copy.deepcopy(delayed);trial['initialization_only']['rndSeed']=seed;trial_seen=[]
+                    for calibration in range(12):
+                        if seed_stop():raise Cancelled('seed search stopped by user')
+                        trial_seen.append(deck_fingerprint(trial))
+                        name='seed-'+str(number)+('-deal-' if optimistic else '-recal-')+str(calibration)
+                        nonlocal_prep_write(preparation/(name+'.json'),trial)
+                        trial=calibrate(trial,probe(name),trial_seen)
+                        if trial['native_deal_ready'] or optimistic:return trial
+                    raise RuntimeError('seed deal calibration did not converge')
+                def run_seed(number,seed,trial,prefix,**options):
+                    nonlocal attempt_prefix
+                    attempt_prefix=prefix
+                    try:
+                        return search(trial,execute_candidate,
+                            lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
+                            cancelled=lambda:(destination/'stop-request.json').exists() or seed_stop(),bound=hp_bound,**options)
+                    finally:attempt_prefix=''
+                def consider(number,seed,result,row):
+                    nonlocal best
+                    trial,trial_execution,trial_search=result
+                    restore(trial_search)
+                    trial_tier,trial_difference=page_comparison(read(source),trial,trial_execution)
+                    row.update(executed=True,tier=trial_tier,difference=trial_difference,
+                               towers=(trial_execution.get('battle_state') or {}).get('towers'))
+                    entry=(rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
+                           (trial,trial_execution,trial_search,dict(selected_candidate)))
+                    if entry[0]<best[0]:best=entry
+                    return entry
+                def incumbent():return best[3] if type(best[3]) is int else None
+                for number,seed in enumerate(seed_plan(match_key,original_seed,remembered=remembered_seed)):
                     if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed search')
                     if seed_stop():seed_report['stopped_by_user']=True;break
-                    status('simulating','终局未完全匹配；卡组含'+card_names+'，按策略尝试其他随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'，当前最接近：'+tier_names[best[2]]+
+                    status('simulating','终局未完全匹配；卡组含'+card_names+'，筛选随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'（之后精修最接近的 '+str(REFINE_SEEDS)+' 个），当前最接近：'+tier_names[best[2]]+
                            ('（塔血相差 '+str(best[3])+'）' if best[3] else '')+'。可随时点「停止匹配，用当前最接近的开播」。',
                            seed_search_active=True,seed_attempt=number+1,seed_total=SEED_ATTEMPTS,seed_best_tier=best[2],seed_best_difference=best[3])
-                    row=dict(seed=seed)
+                    row=dict(seed=seed,phase='screen')
                     try:
-                        trial=copy.deepcopy(delayed);trial['initialization_only']['rndSeed']=seed
-                        trial_seen=[]
-                        for calibration in range(12):
-                            if seed_stop():raise Cancelled('seed search stopped by user')
-                            trial_seen.append(deck_fingerprint(trial))
-                            prep=preparation/('seed-'+str(number)+'-deal-'+str(calibration)+'.json');write_new(prep,trial)
-                            deal=probe('seed-'+str(number)+'-deal-'+str(calibration))
-                            trial=calibrate(trial,deal,trial_seen)
-                            if trial['native_deal_ready']:break
-                        else:raise RuntimeError('seed deal calibration did not converge')
-                        attempt_prefix='seed-'+str(number)+'-'
-                        trial,trial_execution,trial_search=search(trial,execute_candidate,
-                            lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
-                            cancelled=lambda:(destination/'stop-request.json').exists() or seed_stop())
-                        restore(trial_search)
-                        trial_tier,trial_difference=page_comparison(read(source),trial,trial_execution)
-                        row.update(executed=True,tier=trial_tier,difference=trial_difference,
-                                   towers=(trial_execution.get('battle_state') or {}).get('towers'))
-                        if rank(trial_tier,trial_difference)<best[0]:
-                            best=(rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
-                                  (trial,trial_execution,trial_search,dict(selected_candidate)))
+                        trial=calibrated(number,seed,True)
+                        # Without a combination that completed at the original seed, one run
+                        # always stops at the first ambiguous ability: search that seed itself.
+                        options=(dict(initial=fixed_choices,closest=hp_key,max_attempts=SCREEN_RUNS if fixed_choices else SCREEN_RUNS_UNFIXED,
+                                      patience=None if fixed_choices else 6,incumbent=incumbent()) if closest_abilities else {})
+                        try:result=run_seed(number,seed,trial,'seed-'+str(number)+'-',**options)
+                        except RuntimeError as error:
+                            if 'native deal mismatch' not in str(error):raise
+                            row['deal_recalibrated']=True
+                            trial=calibrated(number,seed,False)
+                            result=run_seed(number,seed,trial,'seed-'+str(number)+'-v-',**options)
+                        entry=consider(number,seed,result,row)
+                        screened.append((entry[0],number,seed,trial,dict(entry[4][0].get('ability_target_choices') or {})))
                     except Cancelled:
                         if not seed_stop():raise
                         row.update(executed=False,error='stopped by user before this seed ran')
                         seed_report['attempts'].append(row);seed_report['stopped_by_user']=True;break
-                    except Exception as error:row.update(executed=False,error=str(error)[:300])
-                    finally:attempt_prefix=''
+                    except Exception as error:
+                        row.update(executed=False,error=str(error)[:300])
+                        # A retained native attempt still owns the game: every later seed
+                        # would be refused, so stop here and let failure recovery release it.
+                        if 'native attempt retained' in str(error) or 'still owns game' in str(error):
+                            seed_report['attempts'].append(row);write_new(destination/'seed-search.json',seed_report);raise
                     seed_report['attempts'].append(row)
                     if seed_stop():seed_report['stopped_by_user']=True;break
                     if best[2]=='exact':break
+                if closest_abilities and best[2]!='exact' and not seed_stop():
+                    for step,(_,number,seed,trial,choices) in enumerate(sorted(screened,key=lambda item:item[0])[:REFINE_SEEDS]):
+                        if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed refinement')
+                        if seed_stop():seed_report['stopped_by_user']=True;break
+                        status('simulating','精修最接近的种子 '+str(step+1)+'/'+str(REFINE_SEEDS)+'：在该种子下搜索技能组合，当前最接近：'+tier_names[best[2]]+
+                               ('（塔血相差 '+str(best[3])+'）' if best[3] else '')+'。可随时点「停止匹配，用当前最接近的开播」。',
+                               seed_search_active=True,seed_attempt=len(seed_report['attempts'])+1,seed_total=SEED_ATTEMPTS,seed_best_tier=best[2],seed_best_difference=best[3])
+                        row=dict(seed=seed,phase='refine')
+                        try:
+                            result=run_seed(number,seed,trial,'seed-'+str(number)+'-r-',initial=choices,closest=hp_key,
+                                            max_attempts=REFINE_RUNS,patience=8,incumbent=incumbent())
+                            consider(number,seed,result,row)
+                        except Cancelled:
+                            if not seed_stop():raise
+                            seed_report['stopped_by_user']=True;break
+                        except Exception as error:row.update(executed=False,error=str(error)[:300])
+                        seed_report['attempts'].append(row)
+                        if best[2]=='exact':break
             if best[4] is None:
                 write_new(destination/'seed-search.json',seed_report)
                 raise RuntimeError(str(ability_error)+' '+seed_search_note(len(seed_report['attempts']),seed_policy['allowed'])+'；技能目标没有与网页完全一致的分支，未发布回放。')
             _,selected_seed,tier,difference,(aligned,execution,search_result,chosen)=best
             selected_candidate.clear();selected_candidate.update(chosen)
             seed_report.update(selected_seed=selected_seed,selected_tier=tier,selected_difference=difference)
+            # Remember the closest seed of this MATCH so a re-saved page reproduces it.
+            previous=seed_memory.get(match_key) if isinstance(seed_memory.get(match_key),dict) else {}
+            if rank(tier,difference)<rank(previous.get('tier','unknown'),previous.get('difference')) and tier in PAGE_MATCH_TIERS[:3]:
+                seed_memory[match_key]=dict(seed=selected_seed,tier=tier,difference=difference,replay_tag=read(source).get('replay_tag'),updated_at=time.time())
+                temp=files/'seed-memory.tmp'
+                with temp.open('w') as stream:json.dump(seed_memory,stream,ensure_ascii=False,indent=1)
+                os.chown(temp,owner.st_uid,owner.st_gid);temp.replace(memory_path)
             hp_matched=tier=='exact'
             write_new(destination/'seed-search.json',seed_report)
             receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']
@@ -802,7 +1025,7 @@ def run(request_path,destination,prefix):
             native=preparation/'complete-native.json';write_new(native,full)
             status('validating','手机本机：核对完整录像的原生 JSON 往返。')
             probe('bootstrap-v4',execute=True,native=native)
-            roundtrip=read(destination/'bootstrap-v4-source-execution.json')
+            roundtrip=read(destination/(last_attempt+'-source-execution.json'))
             if not roundtrip.get('loaded_from_json') or roundtrip['commands']!=full['native_replay']['cmd']:
                 raise RuntimeError('native JSON round-trip changed source commands')
         # The Android scene cannot initialise reliably behind another Activity.
@@ -825,6 +1048,7 @@ def run(request_path,destination,prefix):
             elif not context.get('final_hp_matched'):ready_message='全部指令已执行，但终局与网页不符（'+seed_note+'）；仍可播放，过程可能与原局不同。'
             elif context.get('random_seed_inferred'):ready_message='整局核验通过：换用随机种子后终局塔血与网页完全一致（原种子未知，过程为推断）；等待打开游戏，此时尚未开播。'
             else:ready_message='整局计算、全部指令和终局塔血均与网页一致；等待悬浮进度卡就绪并打开游戏，此时尚未开播。'
+            if context.get('ability_closest_selected'):ready_message='技能目标取六塔血差最小的完整组合（推断，未与网页完全一致）。'+ready_message
             status('ready_to_open',ready_message)
             signal=destination/'foreground-request.json'
             if signal.is_file():

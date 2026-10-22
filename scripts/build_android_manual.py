@@ -15,7 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 DOCS=ROOT/'android'
 SOURCE=DOCS/'README.md'
 FONT=Path('/System/Library/Fonts/Supplemental/Arial Unicode.ttf')
-VERSION='hotfix37 / 2026-10-21'
+VERSION='hotfix54 / 2026-10-21'
 
 
 def blocks(text):

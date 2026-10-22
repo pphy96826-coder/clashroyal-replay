@@ -163,6 +163,9 @@ public final class FloatingConsole extends Service {
             if(System.currentTimeMillis()>resetArmedUntil){resetArmedUntil=System.currentTimeMillis()+5000;reset.setText("5 秒内再点一次确认重置");return;}
             resetArmedUntil=0;reset.setText("重置所有回放进程");
             work(new Job(){public String run()throws Exception{return ConsoleActions.resetAll(FloatingConsole.this);}});}});
+        chip(failsafe,"冻结卡顿的指纹服务",0xff3a4558,new View.OnClickListener(){public void onClick(View v){
+            note="正在检查指纹服务占用…";update();
+            work(new Job(){public String run()throws Exception{return ConsoleActions.stopBusyFingerprint();}});}});
         LinearLayout exits=row();
         chip(exits,"完整控制台",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
             setExpanded(false);startActivity(new Intent(FloatingConsole.this,MainActivity.class).addFlags(0x34000000));}});

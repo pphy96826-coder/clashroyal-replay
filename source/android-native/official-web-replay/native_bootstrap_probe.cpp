@@ -258,7 +258,8 @@ EXPORT uintptr_t cr_web_bootstrap_result_address(){
 }
 EXPORT int cr_web_bootstrap_release(){
     if(!probe||!probe->destroyed)return 0;
-    if(probe->domain||probe->json||(!probe->layout.freed&&!probe->resource_preflight_rejected)||probe->layout.failure||probe->cache_lease.layout)return -1;
+    // A task the game queue refused never entered (entered==0): nothing was allocated.
+    if(probe->domain||probe->json||(!probe->layout.freed&&!probe->resource_preflight_rejected&&probe->entered.load())||probe->layout.failure||probe->cache_lease.layout)return -1;
     delete probe;probe=nullptr;return 1;
 }
 EXPORT uintptr_t cr_web_source_text_address(){return probe&&probe->destroyed?reinterpret_cast<uintptr_t>(probe->source.text.c_str()):0;}
