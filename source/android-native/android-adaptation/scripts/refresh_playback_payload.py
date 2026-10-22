@@ -28,9 +28,10 @@ def main():
              'app/proc_maps.py':ROOT/'device/proc_maps.py',
              'app/device_session.py':ROOT/'device/device_session.py',
              'app/device_metadata.py':ROOT/'device/device_metadata.py',
+             'app/device_import.py':ROOT/'device/device_import.py',
              'app/native-code-contract.json':ROOT/'profiles/native-code-contract.json'}
     project=ROOT.parent/'official-web-replay'
-    for name in ('align_native_deal.py','tower_profiles.py','bootstrap_input.py','prepare_native_replay.py','source_completion.py','scene_input.py','run_scene_gate.py','finalize_replay.py','failure_recovery.py','ability_search.py','diagnostic_prefix.py','signal_policy.py'):
+    for name in ('align_native_deal.py','tower_profiles.py','bootstrap_input.py','prepare_native_replay.py','source_completion.py','scene_input.py','run_scene_gate.py','finalize_replay.py','failure_recovery.py','ability_search.py','diagnostic_prefix.py','signal_policy.py','import_replay.py'):
         updates['app/'+name]=project/name
     for name in ('native_bootstrap_probe.cpp','native_scene_probe.cpp','native_tower_check.h','source_execution.h'):
         updates['app/native-src/official-web-replay/'+name]=project/name

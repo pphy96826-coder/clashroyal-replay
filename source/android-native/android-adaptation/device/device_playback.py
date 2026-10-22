@@ -80,6 +80,42 @@ def seed_search_policy(source, tier):
                 skip_reason='exact_match' if tier=='exact' else 'final_towers_unknown' if tier=='unknown' else None if allowed else 'no_seed_sensitive_card')
 
 
+def time_note(context):
+    seconds=context.get('page_time_difference_seconds')
+    return '' if seconds is None else '，终局时间相差 '+('%.1f'%abs(seconds))+' 秒'
+
+
+def elixir_note(context):
+    return '，双方溢出圣水与网页一致' if context.get('page_elixir_matched') is True else ''
+
+
+def cost_text(cost):
+    """Progress label of a page cost; a leaked-elixir mismatch is named, not a huge number."""
+    from ability_search import ELIXIR_MISMATCH_COST
+    if type(cost) is not int:return ''
+    if cost>=ELIXIR_MISMATCH_COST:return '（溢出圣水不一致，综合差距 '+str(cost-ELIXIR_MISMATCH_COST)+'）'
+    return '（综合差距 '+str(cost)+'，含终局时间和溢出圣水）' if cost else ''
+
+
+def elixir_gate(source, preparation, report):
+    """Final check before publication: both players' leaked elixir must equal the
+    page. Returns None when it passes (or the page has no value), else the reason."""
+    from ability_search import elixir_rows
+    rows=elixir_rows(source,report)
+    if all(r['matched'] in (True,None) for r in rows):return None
+    parts=[]
+    for r in rows:
+        if r['matched'] is False:
+            if r.get('shortfall'):
+                parts.append(('蓝方' if r['owner']==0 else '红方')+' 有出牌或技能在圣水不足时执行（实付不是整数圣水），实战中不可能');continue
+            part=('蓝方' if r['owner']==0 else '红方')+' 网页 '+('%.2f'%r['page'])+'，模拟 '+('%.2f'%r['simulated'])
+            if r.get('measured_at')=='battle_end':part+='（模拟在网页结算时间前已结束）'
+            if r.get('implied_ability_and_final') is not None and r.get('measured_at')=='page_end':
+                part+='（按网页反推：技能费用 + 终局剩余圣水应为 '+('%.2f'%r['implied_ability_and_final'])+'，本次技能实付 '+str(r.get('ability_spent'))+'）'
+            parts.append(part)
+    return '截至网页结算时间，溢出圣水与网页不一致：'+'；'.join(parts)
+
+
 def seed_search_note(attempts, allowed):
     if attempts:return '已另试 '+str(attempts)+' 个种子'
     if not allowed:return '卡组无骷髅之王或猎人，保留原种子，未搜索其他种子'
@@ -92,6 +128,35 @@ def page_towers(source, preparation, report):
 
 
 def page_comparison(source, preparation, report):
+    """Rank a fully executed run against the page: (tier, cost).
+
+    cost = summed six-tower HP difference + TIME_WEIGHT_PER_TICK x end-time ticks
+    beyond the tolerance, so the match end time weighs more than tower HP, plus
+    ELIXIR_MISMATCH_COST + ELIXIR_WEIGHT x elixir when either player's leaked
+    elixir differs from the page. Towers that all match with a different end
+    time or leaked elixir is not 'exact' but 'same_towers'."""
+    from ability_search import terminal_time,TIME_WEIGHT_PER_TICK,elixir_check,elixir_cost
+    tier,difference=page_tower_comparison(source,preparation,report)
+    if tier=='unknown':return tier,difference
+    excess=terminal_time(source,report)['excess_ticks'] or 0
+    elixir_matched,_=elixir_check(source,report)
+    if tier=='exact' and (excess>0 or elixir_matched is False):tier='same_towers'
+    return tier,difference+TIME_WEIGHT_PER_TICK*excess+elixir_cost(source,report)
+
+
+def page_breakdown(source, preparation, report):
+    """Display values: tower HP difference and end-time difference in seconds."""
+    from ability_search import terminal_time,elixir_check,elixir_rows
+    _,hp=page_tower_comparison(source,preparation,report)
+    time=terminal_time(source,report)
+    elixir_matched,elixir_difference=elixir_check(source,report)
+    return dict(hp_difference=hp,time_difference_seconds=None if time['delta_ticks'] is None else round(time['delta_ticks']/20,2),
+                elixir_matched=elixir_matched,elixir_leaked_difference=elixir_difference,elixir=elixir_rows(source,report),
+                page_seconds=None if time['page_ticks'] is None else time['page_ticks']/20,
+                simulated_seconds=None if time['simulated_tick'] is None else round(time['simulated_tick']/20,2))
+
+
+def page_tower_comparison(source, preparation, report):
     """Compare a fully executed run with the page's six final towers.
 
     Uses the same per-tower rule as the ability check (final_tower_rows).
@@ -801,11 +866,25 @@ def run(request_path,destination,prefix):
             return result
         status('calibrating','手机本机：核验原生初始发牌和安全释放。')
         delayed=copy.deepcopy(shifted)
-        seen=[]
-        for calibration in range(12):
+        seen=[];deal_seeds=None
+        for calibration in range(24):
             seen.append(deck_fingerprint(shifted))
             deal=probe('bootstrap-v2' if calibration==0 else 'deal-check-'+str(calibration))
-            aligned=calibrate(shifted,deal,seen)
+            try:aligned=calibrate(shifted,deal,seen)
+            except ValueError as error:
+                from align_native_deal import DEAL_SEED_INFEASIBLE
+                if DEAL_SEED_INFEASIBLE not in str(error):raise
+                # Collector/Mirror land where the seed's draws put them, whatever the
+                # deck order: this seed can never deal the page's order. Try another.
+                if deal_seeds is None:
+                    context['deal_seed_original']=shifted['initialization_only']['rndSeed']
+                    deal_seeds=iter(seed_plan(replay_key(read(source)),shifted['initialization_only']['rndSeed']))
+                seed=next(deal_seeds)
+                for doc in (shifted,delayed):doc['initialization_only']['rndSeed']=seed
+                context.update(deal_seed=seed,deal_seed_changed=True);seen.clear()
+                status('calibrating','开局牌序：采集器/镜像的位置只由随机种子决定，当前种子排不出网页的出牌顺序；换随机种子 '+str(seed)+' 重新发牌。')
+                prep=preparation/('preparation-deal-seed-'+str(calibration)+'.json');write_new(prep,shifted)
+                continue
             prep=preparation/('preparation-calibrated-'+str(calibration)+'.json');write_new(prep,aligned)
             if aligned['native_deal_ready']:break
             shifted=aligned
@@ -819,14 +898,17 @@ def run(request_path,destination,prefix):
         # complete result so far; checked between native attempts only.
         def seed_stop():return (destination/'seed-stop-request.json').exists()
         snapshots={}
-        def rank(tier,difference):return (PAGE_MATCH_TIERS.index(tier),difference if difference is not None else 1<<30)
+        from ability_search import ELIXIR_MISMATCH_COST
+        def rank(tier,difference):
+            # Only runs that leak the page's elixir can be published: they come first.
+            return (type(difference) is int and difference>=ELIXIR_MISMATCH_COST,PAGE_MATCH_TIERS.index(tier),difference if difference is not None else 1<<30)
         def restore(search_result):
             chosen=search_result['attempts'][search_result['chosen_attempt']]['evidence']['attempt']
             selected_candidate.clear();selected_candidate.update(snapshots[chosen])
         # Hunter/Skeleton King decks: a wrong ability target changes the battle far
         # more than the shared random seed. Among fully executed ability
-        # combinations (original seed) keep the one with the smallest summed
-        # per-tower HP difference over all six towers, then search seeds with
+        # combinations (original seed) keep the one with the smallest page cost
+        # (six-tower HP difference plus the weighted end-time difference), then search seeds with
         # that combination fixed. Other decks keep the strict exact-HP rule.
         closest_abilities=seed_search_policy(read(source),'different')['allowed']
         closest_best={}
@@ -835,12 +917,24 @@ def run(request_path,destination,prefix):
             key=(difference if difference is not None else 1<<40,PAGE_MATCH_TIERS.index(tier))
             if not attempt_prefix and (not closest_best or key<closest_best['key']):closest_best.update(key=key,tier=tier,difference=difference)
             return key
+        # The page's leaked elixir pins what each hero ability cost: a branch whose
+        # leak has already passed the page's can never end at it. Keep the deepest
+        # ability combination (original seed) still within it, even when that run
+        # ended early, so the seed search can fix the elixir-consistent heroes.
+        elixir_consistent={}
+        def track_elixir(candidate,result):
+            from ability_search import elixir_rows,ELIXIR_TOLERANCE
+            rows=[r for r in elixir_rows(read(source),result) if r['page'] is not None and r['simulated'] is not None]
+            if not rows or any(r['simulated']>=r['page']+ELIXIR_TOLERANCE-1e-6 for r in rows):return
+            choices=dict(candidate.get('ability_target_choices') or {})
+            key=(len(choices),result.get('tick') if type(result.get('tick')) is int else 0)
+            if choices and (not elixir_consistent or key>elixir_consistent['key']):elixir_consistent.update(key=key,choices=choices)
         def execute_candidate(candidate,number):
             nonlocal prep
             prep=preparation/(attempt_prefix+'ability-candidate-'+str(number)+'.json');write_new(prep,candidate)
             name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else ('bootstrap-v3' if number==0 else 'ability-candidate-'+str(number))
             if not attempt_prefix and closest_abilities:
-                found=('当前最接近的完整组合：六塔血差合计 '+str(closest_best['difference'])+'。可随时点「停止匹配，用当前最接近的开播」。') if closest_best.get('difference') is not None else \
+                found=('当前最接近的完整组合'+cost_text(closest_best['difference'])+'（塔血差 + 终局时间差 + 溢出圣水，圣水必须一致）。可随时点「停止匹配，用当前最接近的开播」。') if closest_best.get('difference') is not None else \
                       ('已有完整组合（终局无法完整比对）。可随时停止匹配并开播。' if closest_best else '尚无完整执行的组合；有完整组合后才能停止匹配开播。')
                 status('simulating','技能目标匹配：完整预演候选 '+str(number+1)+'。卡组含猎人/骷髅之王，先选六塔血差最小的技能组合，再匹配随机种子。'+found,
                        seed_search_active=bool(closest_best),ability_search_active=True)
@@ -850,7 +944,9 @@ def run(request_path,destination,prefix):
             name=last_attempt  # a client restart reruns the step under a suffixed name
             selected_candidate.update(receipt=candidate_receipt,preparation=prep)
             snapshots[name]=dict(receipt=candidate_receipt,preparation=prep)
-            return read(destination/(name+'-source-execution.json')),dict(attempt=name,preparation=str(prep))
+            result=read(destination/(name+'-source-execution.json'))
+            if not attempt_prefix:track_elixir(candidate,result)
+            return result,dict(attempt=name,preparation=str(prep))
         if diagnostic is not None:
             from diagnostic_prefix import preview_inputs
             original=diagnostic['preparation']
@@ -868,7 +964,7 @@ def run(request_path,destination,prefix):
             # when the whole battle ends at the page's tower HP. Exception: Hunter/
             # Skeleton King decks keep the closest complete combination (above), and
             # each alternate seed reruns that combination first.
-            ability_error=None
+            ability_error=None;elixir_rejection=None
             original_seed=aligned['initialization_only']['rndSeed']
             try:
                 aligned,execution,search_result=search(aligned,execute_candidate,
@@ -887,6 +983,11 @@ def run(request_path,destination,prefix):
                 # Always compare the simulated end with the page (the search only does so for ambiguous abilities).
                 tier,difference=page_comparison(read(source),aligned,execution)
                 best=(rank(tier,difference),original_seed,tier,difference,(aligned,execution,search_result,dict(selected_candidate)))
+                if type(difference) is int and difference>=ELIXIR_MISMATCH_COST:
+                    # Leaked elixir differs: the heroes are wrong, so this run is discarded, not kept as a fallback.
+                    elixir_rejection=elixir_gate(read(source),aligned,execution)
+                    tier,difference='different',None
+                    best=((True,len(PAGE_MATCH_TIERS),0),original_seed,'different',None,None)
             else:
                 tier,difference='different',None
                 best=((len(PAGE_MATCH_TIERS),0),original_seed,'different',None,None)
@@ -903,11 +1004,16 @@ def run(request_path,destination,prefix):
             remembered=seed_memory.get(match_key) if isinstance(seed_memory.get(match_key),dict) else {}
             remembered_seed=remembered.get('seed') if remembered.get('tier') in PAGE_MATCH_TIERS[:3] else None
             seed_report.update(match_key=match_key,remembered_seed=remembered_seed)
-            fixed_choices=dict(aligned.get('ability_target_choices') or {}) if ability_error is None else {}
+            # A discarded original run never seeds the search; the elixir-consistent heroes do.
+            fixed_choices=dict(aligned.get('ability_target_choices') or {}) if best[4] is not None else {}
+            elixir_inferred=bool(closest_abilities and elixir_consistent and best[4] is None)
+            if elixir_inferred:fixed_choices=dict(elixir_consistent['choices'])
             seed_report['fixed_ability_choices']=fixed_choices if closest_abilities else None
+            seed_report['ability_choices_from_elixir']=elixir_inferred
             if seed_policy['search_needed']:
                 card_names='、'.join('骷髅之王' if card=='skeleton-king' else '猎人' for card in seed_policy['eligible_cards'])
                 if ability_error is not None:status('simulating','原种子下技能目标没有与网页完全一致的分支；卡组含'+card_names+'，按策略尝试其他种子（技能目标仍要求完全一致，不代表已确认差异来自随机性）。')
+                if elixir_inferred:status('simulating','按网页溢出圣水限定英雄技能：先试与溢出圣水相符的 '+str(len(fixed_choices))+' 次技能英雄，每个种子仍继续枚举其余技能分支。')
                 # Successive halving. Screening: every seed gets ONE deal probe and one
                 # full run (the calibrated deal is predicted from that probe; the run
                 # itself verifies it and a mismatch falls back to normal calibration).
@@ -939,6 +1045,8 @@ def run(request_path,destination,prefix):
                     trial,trial_execution,trial_search=result
                     restore(trial_search)
                     trial_tier,trial_difference=page_comparison(read(source),trial,trial_execution)
+                    if type(trial_difference) is int and trial_difference>=ELIXIR_MISMATCH_COST:
+                        raise RuntimeError(elixir_gate(read(source),trial,trial_execution)+'；已丢弃')
                     row.update(executed=True,tier=trial_tier,difference=trial_difference,
                                towers=(trial_execution.get('battle_state') or {}).get('towers'))
                     entry=(rank(trial_tier,trial_difference),seed,trial_tier,trial_difference,
@@ -946,19 +1054,25 @@ def run(request_path,destination,prefix):
                     if entry[0]<best[0]:best=entry
                     return entry
                 def incumbent():return best[3] if type(best[3]) is int else None
+                def closest_text():
+                    # Only runs that passed the elixir check are kept; say so instead of a placeholder tier.
+                    return '尚无溢出圣水与网页一致的完整组合' if best[4] is None else tier_names[best[2]]+cost_text(best[3])
                 for number,seed in enumerate(seed_plan(match_key,original_seed,remembered=remembered_seed)):
                     if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed search')
                     if seed_stop():seed_report['stopped_by_user']=True;break
-                    status('simulating','终局未完全匹配；卡组含'+card_names+'，筛选随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'（之后精修最接近的 '+str(REFINE_SEEDS)+' 个），当前最接近：'+tier_names[best[2]]+
-                           ('（塔血相差 '+str(best[3])+'）' if best[3] else '')+'。可随时点「停止匹配，用当前最接近的开播」。',
+                    status('simulating','终局未完全匹配；卡组含'+card_names+'，筛选随机种子 '+str(number+1)+'/'+str(SEED_ATTEMPTS)+'（之后精修最接近的 '+str(REFINE_SEEDS)+' 个），当前最接近：'+closest_text()+
+                           ''+'。可随时点「停止匹配，用当前最接近的开播」。',
                            seed_search_active=True,seed_attempt=number+1,seed_total=SEED_ATTEMPTS,seed_best_tier=best[2],seed_best_difference=best[3])
                     row=dict(seed=seed,phase='screen')
                     try:
                         trial=calibrated(number,seed,True)
                         # Without a combination that completed at the original seed, one run
                         # always stops at the first ambiguous ability: search that seed itself.
-                        options=(dict(initial=fixed_choices,closest=hp_key,max_attempts=SCREEN_RUNS if fixed_choices else SCREEN_RUNS_UNFIXED,
-                                      patience=None if fixed_choices else 6,incumbent=incumbent()) if closest_abilities else {})
+                        # Elixir-inferred heroes only constrain: they are tried first, and the
+                        # seed still enumerates its own branches (pruned by leaked elixir).
+                        complete_fixed=bool(fixed_choices) and not elixir_inferred
+                        options=(dict(initial=fixed_choices,closest=hp_key,max_attempts=SCREEN_RUNS if complete_fixed else SCREEN_RUNS_UNFIXED,
+                                      patience=None if complete_fixed else 6,incumbent=incumbent()) if closest_abilities else {})
                         try:result=run_seed(number,seed,trial,'seed-'+str(number)+'-',**options)
                         except RuntimeError as error:
                             if 'native deal mismatch' not in str(error):raise
@@ -984,8 +1098,8 @@ def run(request_path,destination,prefix):
                     for step,(_,number,seed,trial,choices) in enumerate(sorted(screened,key=lambda item:item[0])[:REFINE_SEEDS]):
                         if (destination/'stop-request.json').exists():raise Cancelled('cancelled during seed refinement')
                         if seed_stop():seed_report['stopped_by_user']=True;break
-                        status('simulating','精修最接近的种子 '+str(step+1)+'/'+str(REFINE_SEEDS)+'：在该种子下搜索技能组合，当前最接近：'+tier_names[best[2]]+
-                               ('（塔血相差 '+str(best[3])+'）' if best[3] else '')+'。可随时点「停止匹配，用当前最接近的开播」。',
+                        status('simulating','精修最接近的种子 '+str(step+1)+'/'+str(REFINE_SEEDS)+'：在该种子下搜索技能组合，当前最接近：'+closest_text()+
+                               ''+'。可随时点「停止匹配，用当前最接近的开播」。',
                                seed_search_active=True,seed_attempt=len(seed_report['attempts'])+1,seed_total=SEED_ATTEMPTS,seed_best_tier=best[2],seed_best_difference=best[3])
                         row=dict(seed=seed,phase='refine')
                         try:
@@ -1000,7 +1114,8 @@ def run(request_path,destination,prefix):
                         if best[2]=='exact':break
             if best[4] is None:
                 write_new(destination/'seed-search.json',seed_report)
-                raise RuntimeError(str(ability_error)+' '+seed_search_note(len(seed_report['attempts']),seed_policy['allowed'])+'；技能目标没有与网页完全一致的分支，未发布回放。')
+                reason=str(ability_error) if ability_error is not None else (elixir_rejection or '没有溢出圣水与网页一致的完整分支')
+                raise RuntimeError(reason+' '+seed_search_note(len(seed_report['attempts']),seed_policy['allowed'])+'；没有溢出圣水和技能目标都与网页一致的分支，未发布回放。')
             _,selected_seed,tier,difference,(aligned,execution,search_result,chosen)=best
             selected_candidate.clear();selected_candidate.update(chosen)
             seed_report.update(selected_seed=selected_seed,selected_tier=tier,selected_difference=difference)
@@ -1018,9 +1133,18 @@ def run(request_path,destination,prefix):
             # final_hp_matched: the whole simulated battle ends exactly at the page's tower HP.
             # random_seed_inferred: matched only with a substituted seed; not proof of the original process.
             # Per-tower record of the run actually selected, for side-by-side checks.
-            write_new(destination/'page-comparison.json',dict(tier=tier,difference=difference,towers=page_towers(read(source),aligned,execution)))
-            context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=difference,random_seed=seed_report['selected_seed'],
-                           random_seed_inferred=seed_report['selected_seed']!=original_seed,seed_attempts=len(seed_report['attempts']))
+            breakdown=page_breakdown(read(source),aligned,execution)
+            write_new(destination/'page-comparison.json',dict(tier=tier,difference=difference,match_cost=difference,**breakdown,
+                                                              towers=page_towers(read(source),aligned,execution)))
+            context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=breakdown['hp_difference'],page_match_cost=difference,
+                           page_time_difference_seconds=breakdown['time_difference_seconds'],random_seed=seed_report['selected_seed'],
+                           random_seed_inferred=seed_report['selected_seed']!=original_seed or bool(context.get('deal_seed_changed')),seed_attempts=len(seed_report['attempts']),
+                           page_elixir_matched=breakdown['elixir_matched'])
+            # Final gate: both players must leak exactly the page's elixir, which pins
+            # what was paid for abilities. Anything else is never published.
+            elixir_refusal=elixir_gate(read(source),aligned,execution)
+            if elixir_refusal is not None:
+                raise RuntimeError(elixir_refusal+'（'+seed_search_note(len(seed_report['attempts']),seed_policy['allowed'])+'）；未放行，未发布回放。')
             full=finalize(aligned,execution,receipt)
             native=preparation/'complete-native.json';write_new(native,full)
             status('validating','手机本机：核对完整录像的原生 JSON 往返。')
@@ -1043,11 +1167,11 @@ def run(request_path,destination,prefix):
             cancellation();ReadOnlySession(identity).verify()
             if diagnostic is not None:ready_message='诊断前缀证据已核验；等待打开游戏，未通过整局校验。'
             elif context.get('page_match')=='unknown':ready_message='全部指令已执行；终局有塔缺少网页数据或模拟记录，无法完整比对（未当作不一致，'+seed_note+'）；可以播放。'
-            elif context.get('page_match')=='same_towers':ready_message='胜负和被摧毁的塔与网页一致，塔血合计相差 '+str(context.get('page_hp_difference'))+'（'+seed_note+'）；等待打开游戏，此时尚未开播。'
+            elif context.get('page_match')=='same_towers':ready_message='胜负和被摧毁的塔与网页一致，塔血合计相差 '+str(context.get('page_hp_difference'))+time_note(context)+elixir_note(context)+'（'+seed_note+'）；等待打开游戏，此时尚未开播。'
             elif context.get('page_match')=='same_winner':ready_message='胜负与网页一致，但被摧毁的塔不同（'+seed_note+'）；仍可播放，过程与原局不同。'
             elif not context.get('final_hp_matched'):ready_message='全部指令已执行，但终局与网页不符（'+seed_note+'）；仍可播放，过程可能与原局不同。'
-            elif context.get('random_seed_inferred'):ready_message='整局核验通过：换用随机种子后终局塔血与网页完全一致（原种子未知，过程为推断）；等待打开游戏，此时尚未开播。'
-            else:ready_message='整局计算、全部指令和终局塔血均与网页一致；等待悬浮进度卡就绪并打开游戏，此时尚未开播。'
+            elif context.get('random_seed_inferred'):ready_message='整局核验通过：换用随机种子后终局塔血与网页完全一致'+elixir_note(context)+'（原种子未知，过程为推断）；等待打开游戏，此时尚未开播。'
+            else:ready_message='整局计算、全部指令和终局塔血均与网页一致'+elixir_note(context)+'；等待悬浮进度卡就绪并打开游戏，此时尚未开播。'
             if context.get('ability_closest_selected'):ready_message='技能目标取六塔血差最小的完整组合（推断，未与网页完全一致）。'+ready_message
             status('ready_to_open',ready_message)
             signal=destination/'foreground-request.json'

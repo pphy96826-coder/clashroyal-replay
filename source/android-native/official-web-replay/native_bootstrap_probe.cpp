@@ -192,6 +192,7 @@ bool consume(void* v,void* layout){
     }
     if(bootstrap_run_source){
         for(unsigned o=0;o<2;++o)for(unsigned i=0;i<3;++i)web_source::expected_tower_ids[o*3+i]=bootstrap_towers[o][i].id;
+        web_source::elixir_checkpoint=bootstrap_page_end;
         web_source::Calls calls{b,p->services,source_readable,stable,p};
         if(bootstrap_run_loaded)web_source::run_loaded(calls,p->source,d,battle,bootstrap_events,bootstrap_source_end);
         else web_source::run(calls,p->source,d,battle,bootstrap_events,bootstrap_source_end);

@@ -4,6 +4,9 @@ import re
 def explanation(error):
     text = str(error)
     lower = text.lower()
+    if '溢出圣水与网页不一致' in text:
+        # The elixir gate's own message names both values and the implied ability cost.
+        return text.split('）；未放行')[0] + '）。终局溢出圣水必须与网页一致才放行。' if '）；未放行' in text else text
     if any(word in lower for word in ('native expression', 'without a running target',
                                      "interpreter doesn't handle", 'jit compiled function')):
         return '本机调试器无法执行原生函数调用；不是手牌或技能目标错误。可能涉及调试上下文或虚拟机执行能力，具体原因请查看诊断记录。'

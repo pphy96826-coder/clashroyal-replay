@@ -6,7 +6,7 @@ import traceback
 
 from native_runner.tools.royaleapi_hog_il import parse_royaleapi_replay_html
 from native_runner.royaleapi_replay import resolve_native_card, RoyaleAPIReplayError
-from import_replay import card_ids_from_html, convert
+from import_replay import attach_elixir_leaked, card_ids_from_html, convert
 
 
 def run(source: Path, destination: Path):
@@ -26,6 +26,7 @@ def run(source: Path, destination: Path):
         document = convert(payload, source_path=source, source_bytes=raw,
                            parser_digest=hashlib.sha256(parser.read_bytes()).hexdigest(),
                            card_ids=card_ids_from_html(text, resolve))
+        attach_elixir_leaked(document, text)
         document['processing_location'] = 'android-embedded-python'
         document['desktop_backend_used'] = False
         with (destination/'source.json').open('x', encoding='utf-8') as stream:

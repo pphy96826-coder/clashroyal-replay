@@ -21,6 +21,12 @@ RARITY_OFFSET = {26000021:3,26000038:3,26000014:3,27000000:1,
 FORM_INPUT = {'basic':0,'evolution':1,'hero':2}
 
 
+# Elixir Collector and Mirror are never dealt in the starting hand (the card
+# catalog's omit_from_starting_hand); the native engine rejects an opening that
+# holds them, so they are moved to the 5th (and 6th) card instead.
+NOT_IN_OPENING = (27000007, 28000006)
+
+
 def cycle_slots(opening, queue, plays):
     hand=list(opening);queue=list(queue);slots=[]
     for card in plays:
@@ -38,14 +44,17 @@ def infer_compatible_cycle(cards, plays):
     """
     if len(cards)!=8 or len(set(cards))!=8 or not plays or not set(plays)<=set(cards):
         raise ValueError('invalid deck/action stream')
-    opening=list(dict.fromkeys(plays))[:4]
-    if len(opening)!=4:raise ValueError('fewer than four distinct observed cards')
+    if len(set(plays))<4:raise ValueError('fewer than four distinct observed cards')
+    opening=[c for c in dict.fromkeys(plays+cards) if c not in NOT_IN_OPENING][:4]
     remaining=[c for c in dict.fromkeys(plays+cards) if c not in opening]
+    held=[c for c in remaining if c in NOT_IN_OPENING]
     queues=[]
     for queue in itertools.permutations(remaining):
         slots=cycle_slots(opening,queue,plays)
         if slots is not None:queues.append({'queue':list(queue),'slots':slots})
     if not queues:raise ValueError('first-seen opening cannot reproduce complete stream')
+    # Collector/Mirror as early as the stream allows: the 5th (then 6th) card.
+    queues.sort(key=lambda q:[q['queue'].index(c) for c in held])
     return {'opening':opening,'queue':queues[0]['queue'],'slots':queues[0]['slots'],
             'compatible_queue_count':len(queues),'all_actions_legal_in_cycle_model':True,
             'hidden_original_hand_proven':False,'native_deal_verified':False,
@@ -136,6 +145,8 @@ def prepare(source,level_offsets=None,tower_evidence=None):
         'source_sha256':source['source_sha256'],'source_orientation':source['source_orientation'],
         'tower_bindings':towers,
         'source_to_native_orientation_verified':False,'participants':sides,'events':events,
+        # The page's end time: elixir is compared here, wherever the run itself ends.
+        'page_end_tick':int(round(duration*20)),
         'initialization_only':{'battle':battle,'rndSeed':1784463263,'time':-1,'endTick':limit,
                                'cmd':[],'evt':[],'srq':[],'srs':[]},
         'preserved_event_count':len(events),'source_action_count':source['source_action_count'],

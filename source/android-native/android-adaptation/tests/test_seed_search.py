@@ -14,7 +14,8 @@ SOURCE=(ROOT/'device/device_playback.py').read_text()
 
 def load(name):
     tree=ast.parse(SOURCE)
-    nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name==name)
+    names={name,'page_tower_comparison'} if name=='page_comparison' else {name}
+    nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in names)
            or (isinstance(n,ast.Assign) and any(getattr(t,'id','')=='SEED_ATTEMPTS' for t in n.targets))]
     nodes+=[n for n in tree.body if isinstance(n,ast.Assign) and any(getattr(t,'id','')=='PAGE_MATCH_TIERS' for t in n.targets)]
     scope=dict(hashlib=hashlib)
@@ -51,7 +52,7 @@ class SeedSearchTests(unittest.TestCase):
         self.assertIn("selected_candidate.clear();selected_candidate.update(chosen)",block)
         self.assertIn("raise Cancelled('cancelled during seed search')",block)
         tail=SOURCE[SOURCE.index("receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']"):]
-        self.assertIn("context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=difference",tail)
+        self.assertIn("context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=breakdown['hp_difference'],page_match_cost=difference",tail)
         self.assertIn("name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else",SOURCE)
 
     def test_page_comparison_tiers(self):
@@ -78,6 +79,38 @@ class SeedSearchTests(unittest.TestCase):
         self.assertEqual(run({0:(0,0,0),1:(4824,2037,2146)},{0:(0,None,None),1:(4824,2037,2146)}),('exact',0))
         # Absent without destruction evidence is unknown, never a guessed match.
         self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)}),('unknown',None))
+
+    def test_end_time_outweighs_tower_hp(self):
+        import sys,types
+        tower_profiles=types.ModuleType('tower_profiles')
+        entries=[dict(data_id=35000000,grid_x=18),dict(data_id=35000001,grid_x=7),dict(data_id=35000001,grid_x=29)]
+        tower_profiles.bindings=lambda p:{0:dict(spawn_entries=entries),1:dict(spawn_entries=entries)}
+        sys.modules['tower_profiles']=tower_profiles
+        cmp=load('page_comparison')
+        page={0:(2151,1630,2000),1:(4824,2037,2146)}
+        source=dict(source_duration_seconds=267,decks=[dict(proposed_native_owner=o,oracle_final_hp=dict(zip(('king','princess0','princess1'),page[o]))) for o in (0,1)])
+        def run(offset,tick):
+            xs=(9000,3500,14500);ids=(35000000,35000001,35000001)
+            tw=[dict(owner=o,data_id=ids[i],x=xs[i],hp=hp-(offset if (o,i)==(0,0) else 0)) for o in (0,1) for i,hp in enumerate(page[o])]
+            return cmp(source,{},dict(finished=1,tick=tick,battle_state=dict(towers=tw)))
+        # Within the 1 s tolerance only tower HP counts; exact stays exact.
+        self.assertEqual(run(0,267*20+8),('exact',0))
+        self.assertEqual(run(0,267*20-20),('exact',0))
+        # Same towers but the battle ends 2 s late: never exact, each extra tick costs 100 HP.
+        self.assertEqual(run(0,267*20+40),('same_towers',2000))
+        # 946 HP off but on time beats 1016 HP off and 2.3 s late.
+        self.assertLess(run(946,267*20+4)[1],run(1016,267*20+46)[1])
+        self.assertLess(run(1500,267*20)[1],run(0,267*20+40)[1])
+        # Unknown page duration or unfinished battle: HP only, as before.
+        self.assertEqual(cmp(dict(source,source_duration_seconds=None),{},dict(finished=1,tick=9999,battle_state=dict(towers=[]))),('unknown',None))
+        from ability_search import terminal_time,terminal_hp_matches
+        self.assertEqual(terminal_time(source,dict(finished=0,tick=5000))['excess_ticks'],None)
+        self.assertEqual(terminal_time(source,dict(finished=1,tick=267*20+46))['excess_ticks'],26)
+        # The ability search's exact stop also requires the end time.
+        xs=(9000,3500,14500);ids=(35000000,35000001,35000001)
+        towers=[dict(owner=o,data_id=ids[i],x=xs[i],hp=hp) for o in (0,1) for i,hp in enumerate(page[o])]
+        self.assertTrue(terminal_hp_matches(source,{},dict(finished=1,tick=267*20+10,battle_state=dict(towers=towers))))
+        self.assertFalse(terminal_hp_matches(source,{},dict(finished=1,tick=267*20+46,battle_state=dict(towers=towers))))
 
     def test_ready_message_never_claims_a_match_that_was_not_found(self):
         ready=SOURCE[SOURCE.index("if diagnostic is not None:ready_message="):SOURCE.index("status('ready_to_open',ready_message)")]
@@ -145,8 +178,10 @@ class SeedPolicyTests(unittest.TestCase):
             scope=dict(aligned=aligned,delayed=copy.deepcopy(aligned),source='source',read=lambda path:source,
                        seed_search_policy=load('seed_search_policy'),seed_search_note=load('seed_search_note'),
                        PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different','unknown'),SEED_ATTEMPTS=60,SCREEN_RUNS=1,SCREEN_RUNS_UNFIXED=12,REFINE_SEEDS=3,REFINE_RUNS=24,
-                       rank=lambda t,d:(('exact','same_towers','same_winner','different','unknown').index(t),d if d is not None else 1<<30),
+                       rank=lambda t,d:(type(d) is int and d>=1000000,('exact','same_towers','same_winner','different','unknown').index(t),d if d is not None else 1<<30),
                        search=search,execute_candidate=None,terminal_hp_matches=lambda *args:True,page_comparison=compare,page_towers=lambda *args:[],
+                       page_breakdown=lambda source,candidate,report:dict(hp_difference=compare(source,candidate,report)[1],time_difference_seconds=None,page_seconds=None,simulated_seconds=None,elixir_matched=None),
+                       cost_text=lambda cost:'',elixir_gate=getattr(self,'elixir_gate_fn',lambda *args:getattr(self,'elixir_refusal',None)),elixir_consistent=dict(getattr(self,'elixir_consistent',{})),ELIXIR_MISMATCH_COST=1000000,
                        restore=lambda result:None,selected_candidate=selected,context={},
                        closest_abilities=load('seed_search_policy')(source,'different')['allowed'],hp_key='hp_key',hp_bound='hp_bound',
                        destination=Path(directory),preparation=Path(directory),request=dict(source_sha256='a'*64),
@@ -217,7 +252,7 @@ class SeedStopTests(unittest.TestCase):
         self.assertIn("closest_abilities=seed_search_policy(read(source),'different')['allowed']",SOURCE)
         self.assertIn("closest=hp_key if closest_abilities else None,stop_early=seed_stop if closest_abilities else lambda:False",SOURCE)
         # Seeds rerun the chosen combination first, within a small bound.
-        self.assertIn("max_attempts=SCREEN_RUNS if fixed_choices else SCREEN_RUNS_UNFIXED",SOURCE)
+        self.assertIn("max_attempts=SCREEN_RUNS if complete_fixed else SCREEN_RUNS_UNFIXED",SOURCE)
         self.assertIn("sorted(screened,key=lambda item:item[0])[:REFINE_SEEDS]",SOURCE)
         self.assertIn("ability_search_active=True",SOURCE)
         self.assertIn("if not getattr(error,'search_report',{}).get('explored_branches_exhausted'):raise",SOURCE)

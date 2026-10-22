@@ -6,10 +6,10 @@
 
 | 平台 | 安装教程 | 下载 | 源码文件夹 |
 | --- | --- | --- | --- |
-| **Mac**（Apple Silicon，MuMu 模拟器 Pro） | [纯安卓适配教程 · 第 3 节](android/README.md) | [hotfix54](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix54) | [`source/android-native/`](source/android-native/README.md) |
+| **Mac**（Apple Silicon，MuMu 模拟器 Pro） | [纯安卓适配教程 · 第 3 节](android/README.md) | [hotfix65](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix65) | [`source/android-native/`](source/android-native/README.md) |
 | **Windows**（MuMu 6.6.4.0） | [Windows + MuMu 一体版教程](docs/mumu-android/安装教程.md) | [mumu-android hotfix3](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261022-hotfix3) | [`source/android-adaptation/`](source/android-adaptation/README.md)（共用模块在 `source/windows-adaptation/project/`） |
-| **已 Root 的安卓手机** | [纯安卓适配教程 · 第 4 节](android/README.md) | [hotfix54](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix54) | [`source/android-native/`](source/android-native/README.md) |
-| **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix54](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix54) | [`source/android-native/`](source/android-native/README.md) |
+| **已 Root 的安卓手机** | [纯安卓适配教程 · 第 4 节](android/README.md) | [hotfix65](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix65) | [`source/android-native/`](source/android-native/README.md) |
+| **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix65](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix65) | [`source/android-native/`](source/android-native/README.md) |
 | iPhone / iPad | 没有本机方案，只能远程观看：[可能的播放方法](docs/非Root安卓与iOS播放方案.md) | — | — |
 
 ## 仓库结构
@@ -102,13 +102,15 @@ APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu �
 
 旧桌面适配已由本方案替换为默认入口。[历史完整环境](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/windows-mumu-20261019) 仍在 Releases 中保留供回退。`source/windows-adaptation/` 保留旧桌面代码和原始验证 C++ 源码，一体版的构建与测试仍使用其中的 `project/official-web-replay/`。
 
-## 纯安卓适配 · 2026-10-21 hotfix54
+## 纯安卓适配 · 2026-10-21 hotfix65
 
-[安卓适配页面与完整图文教程](android/README.md) · [下载 APK 与完整资料包](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix54) · [更新说明与验证范围](android/更新说明-hotfix54.md)
+[安卓适配页面与完整图文教程](android/README.md) · [下载 APK 与完整资料包](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix65) · [更新说明与验证范围](android/更新说明-hotfix65.md)
 
 - 控制台、游戏、Edge 都装在同一个安卓系统里：Mac 上 MuMu 模拟器 Pro 的安卓 12 实例、已 Root 手机，或非 Root 手机里的虚拟大师虚拟机。原 macOS 桌面版已停用。
+- **溢出圣水限定英雄技能**：按网页结算时间比对每方溢出圣水（官方对战日志），不一致的技能组合直接丢弃，不一致不放行；终局时间也参与匹配。
+- **圣水采集器 / 镜像不进开局手牌**：按引擎发牌规则一次算出卡组排序，必要时自动换随机种子；08UPYGRCGVRC 等开局有采集器的回放现在可以播放。
 - **同一场回放可稳定复现**：随机种子按对局内容生成（与网页保存几次无关），并记住每场最接近的种子，下次第一个就试。
 - 英雄技能先选六塔血差最小的组合再匹配随机种子；分支定界剪枝、“先筛选后精修”的种子搜索。
 - 调试器丢失游戏进程后自动重启游戏继续准备；游戏短暂不在大厅或任务队列拒绝时安全卸载并重试。新增「冻结卡顿的指纹服务」「清理旧运行环境和任务记录」按钮。
 - 教程第 13 节列出了[常见的播放失败情形](android/README.md#13-常见的播放失败情形)及处理方法。
-- MuMu 实机验证：092PYR8PUC9R、02RYPY228YCQ 六座塔与网页完全一致；极端回放 02JYPPC02YUL 完整播放（终局近似）。虚拟大师路线仍为**实验性**。
+- MuMu 实机验证：092PYR8PUC9R、08UPYGRCGVRC 六座塔、终局时间、双方溢出与网页完全一致；极端回放 02JYPPC02YUL 溢出一致、被摧毁的塔一致，塔血差 491。虚拟大师路线仍为**实验性**。
