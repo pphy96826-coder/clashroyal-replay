@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import itertools
+from functools import lru_cache
 from pathlib import Path
 from prepare_native_replay import NOT_IN_OPENING, cycle_slots
 from tower_profiles import bind_initial_towers
@@ -83,6 +84,23 @@ def deck_order_for(desired, draws, held=NOT_IN_OPENING):
     return [slot[t] for t in tokens]
 
 
+@lru_cache(maxsize=8)
+def _legal_held_deals(cards, plays, held_slots):
+    """Pure cycle constraints, independent of seed, physical deck and live state.
+
+    Keys use canonical card order, the ENTIRE source play stream and the exact
+    set-aside positions. Results are immutable; no native observation is cached.
+    """
+    candidates = []
+    for order in itertools.permutations(cards):
+        if tuple(k for k, c in enumerate(order) if c in NOT_IN_OPENING) != held_slots:
+            continue
+        slots = cycle_slots(order[:4], order[4:], plays)
+        if slots is not None:
+            candidates.append((order, tuple(slots)))
+    return tuple(candidates)
+
+
 def calibrate_held(entries, actual, perm, plays, desired, seen, owner):
     """Exact calibration for a deck holding Collector/Mirror: one observation gives
     the seed's draws; pick the closest stream-legal deal the seed can produce."""
@@ -94,14 +112,14 @@ def calibrate_held(entries, actual, perm, plays, desired, seen, owner):
                   if physical[card] in NOT_IN_OPENING}
     tried = {tuple(previous[owner]) for previous in seen} | {tuple(physical)}
     candidates = []
-    for order in itertools.permutations(actual):
-        if {k for k, c in enumerate(order) if c in NOT_IN_OPENING} != held_slots: continue
-        slots = cycle_slots(list(order[:4]), list(order[4:]), plays)
-        if slots is None: continue
+    actual_rank = {card: index for index, card in enumerate(actual)}
+    for order, slots in _legal_held_deals(tuple(sorted(actual)), tuple(plays), tuple(sorted(held_slots))):
         deck = deck_order_for(list(order), draws)
         if deck is None or tuple(deck) in tried: continue
-        score = (sum(a != b for a, b in zip(order, desired)), sum(a != b for a, b in zip(order, actual)))
-        candidates.append((score, list(order), deck, slots))
+        # Preserve the previous itertools.permutations(actual) tie order exactly.
+        score = (sum(a != b for a, b in zip(order, desired)), sum(a != b for a, b in zip(order, actual)),
+                 tuple(actual_rank[c] for c in order))
+        candidates.append((score, list(order), deck, list(slots)))
     if not candidates: raise ValueError(DEAL_SEED_INFEASIBLE)
     _, chosen, deck, slots = min(candidates, key=lambda c: c[0])
     return [by_id[c] for c in deck], chosen, slots

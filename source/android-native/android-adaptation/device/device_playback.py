@@ -65,6 +65,32 @@ def debugger_lost(receipt):
     return bool(errors) and all(any(marker in str(error) for marker in DEBUGGER_LOSS_MARKERS) for error in errors)
 
 
+def candidate_scope(identity):
+    """Read-only generation label; never migrate a resource/worker handle.
+
+    Identical process metadata alone is insufficient: the public resource owners
+    or worker can have been replaced inside the same process. Bind their exact
+    fresh identities, including the worker thread's start time, and double read.
+    """
+    session=ReadOnlySession(identity);base=session.base
+    def owners():
+        root=session.raw_pointer(base+0x1d34ae0)
+        if not root:raise ValueError('candidate resource owner absent')
+        services=session.raw_pointer(root+0x20)
+        worker=session.raw_pointer(base+0x1d88820)
+        if not services or not worker:raise ValueError('candidate resources or worker absent')
+        catalog=session.raw_pointer(services+0x38)
+        if not catalog:raise ValueError('candidate catalog absent')
+        tid=struct.unpack('<i',session.read(worker+0x10,4))[0]
+        if not 0<tid<1<<22:raise ValueError('candidate worker absent')
+        thread_start=start_time((Path('/proc')/str(identity['pid'])/'task'/str(tid)/'stat').read_text())
+        return root,services,catalog,worker,tid,thread_start
+    first=owners()
+    if owners()!=first:raise ValueError('candidate resource generation changed during observation')
+    session.verify()
+    return dict(identity=copy.deepcopy(identity),resource_generation=hashlib.sha256(repr(first).encode()).hexdigest())
+
+
 def seed_search_policy(source, tier):
     """Gate alternate seeds by BOTH source decks, independently of ability search."""
     import re
@@ -890,7 +916,7 @@ def run(request_path,destination,prefix):
             shifted=aligned
         else:raise RuntimeError('原生牌序有界校准未通过；没有执行源指令')
         status('simulating','手机原生引擎：完整执行全部下牌和技能。')
-        from ability_search import search,terminal_hp_matches,damage_lower_bound
+        from ability_search import search,terminal_hp_matches,damage_lower_bound,CandidateMemo
         def hp_bound(candidate,result):return damage_lower_bound(read(source),candidate,result)
         selected_candidate={}
         attempt_prefix=''
@@ -898,6 +924,7 @@ def run(request_path,destination,prefix):
         # complete result so far; checked between native attempts only.
         def seed_stop():return (destination/'seed-stop-request.json').exists()
         snapshots={}
+        candidate_memo=CandidateMemo()
         from ability_search import ELIXIR_MISMATCH_COST
         def rank(tier,difference):
             # Only runs that leak the page's elixir can be published: they come first.
@@ -1035,11 +1062,28 @@ def run(request_path,destination,prefix):
                 def run_seed(number,seed,trial,prefix,**options):
                     nonlocal attempt_prefix
                     attempt_prefix=prefix
+                    def released(report,evidence):
+                        receipt=snapshots.get(evidence.get('attempt'),{}).get('receipt') or {}
+                        return (receipt.get('detached') is True and receipt.get('source_bootstrap_verified') is True
+                                and receipt.get('component_unloaded') is True)
+                    def reusable(candidate,index):
+                        # Scope is captured afresh, never reuse evidence across a recovered client.
+                        before=candidate_scope(identity)
+                        def still_released(report,evidence):
+                            return released(report,evidence) and candidate_scope(identity)==before
+                        def verify_reuse():
+                            if candidate_scope(identity)!=before:raise ValueError('candidate scope changed before reuse')
+                        return candidate_memo.run(candidate,index,execute_candidate,scope=before,
+                            verify=verify_reuse,cacheable=still_released)
                     try:
-                        return search(trial,execute_candidate,
+                        result=search(trial,reusable,
                             lambda candidate,result:terminal_hp_matches(read(source),candidate,result),
                             cancelled=lambda:(destination/'stop-request.json').exists() or seed_stop(),bound=hp_bound,**options)
-                    finally:attempt_prefix=''
+                        result[2]['candidate_reuse']=candidate_memo.stats()
+                        return result
+                    finally:
+                        attempt_prefix=''
+                        seed_report['candidate_reuse']=candidate_memo.stats()
                 def consider(number,seed,result,row):
                     nonlocal best
                     trial,trial_execution,trial_search=result

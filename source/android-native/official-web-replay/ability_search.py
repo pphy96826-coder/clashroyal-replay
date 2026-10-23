@@ -1,9 +1,52 @@
 """Bounded fresh-simulation tree search. Same final HP is an inference only."""
 import copy
+import hashlib
+import json
+from collections import OrderedDict
 from source_completion import source_completed,source_failure
 
 
 KING_DATA_ID = 35000000
+
+
+class CandidateMemo:
+    """Task-local reuse of immutable, cleanly released candidate evidence.
+
+    Never stores a usable native handle or a live component. The caller proves
+    clean release before insertion and verifies the current process on a hit.
+    A changed process/resource identity invalidates everything. There is no
+    disk cache and no reuse across imported tasks, APKs or client restarts.
+    """
+    def __init__(self, max_entries=128, max_bytes=8*1024*1024):
+        self.max_entries=max_entries;self.max_bytes=max_bytes
+        self.entries=OrderedDict();self.bytes=0;self.scope=None
+        self.hits=0;self.executions=0
+
+    def run(self, candidate, number, execute, *, scope, verify, cacheable):
+        scope=json.dumps(scope, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        if self.scope!=scope:
+            self.entries.clear();self.bytes=0;self.scope=scope
+        raw=json.dumps(candidate, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        key=hashlib.sha256(raw.encode()).digest()
+        if key in self.entries:
+            verify()  # refusal propagates; never fall back to another native call
+            self.hits+=1
+            payload=self.entries.pop(key);self.entries[key]=payload
+            report,evidence=json.loads(payload)
+            return report,evidence
+        self.executions+=1
+        report,evidence=execute(candidate, number)
+        if report.get('error') in (0, 112) and cacheable(report, evidence):
+            payload=json.dumps((report,evidence), sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+            if len(payload)<=self.max_bytes:
+                while self.entries and (len(self.entries)>=self.max_entries or self.bytes+len(payload)>self.max_bytes):
+                    _,old=self.entries.popitem(last=False);self.bytes-=len(old)
+                self.entries[key]=payload;self.bytes+=len(payload)
+        return report,evidence
+
+    def stats(self):
+        return dict(reused_candidates=self.hits,native_executions=self.executions,
+                    retained_candidates=len(self.entries),retained_bytes=self.bytes)
 
 
 def _uid(tower):

@@ -40,7 +40,7 @@ class SeedSearchTests(unittest.TestCase):
         self.assertIn("if seed_policy['search_needed']:",block)
         # Each seed gets its own deal calibration before any source command runs.
         self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,probe(name),trial_seen)'))
-        self.assertLess(block.index('trial=calibrate(trial,probe(name),trial_seen)'),block.index('return search(trial,execute_candidate'))
+        self.assertLess(block.index('trial=calibrate(trial,probe(name),trial_seen)'),block.index('result=search(trial,reusable'))
         # Screening predicts the deal from ONE probe; a deal mismatch recalibrates normally.
         self.assertIn("if trial['native_deal_ready'] or optimistic:return trial",block)
         self.assertIn("if 'native deal mismatch' not in str(error):raise",block)
@@ -183,6 +183,7 @@ class SeedPolicyTests(unittest.TestCase):
                        page_breakdown=lambda source,candidate,report:dict(hp_difference=compare(source,candidate,report)[1],time_difference_seconds=None,page_seconds=None,simulated_seconds=None,elixir_matched=None),
                        cost_text=lambda cost:'',elixir_gate=getattr(self,'elixir_gate_fn',lambda *args:getattr(self,'elixir_refusal',None)),elixir_consistent=dict(getattr(self,'elixir_consistent',{})),ELIXIR_MISMATCH_COST=1000000,
                        restore=lambda result:None,selected_candidate=selected,context={},
+                       candidate_memo=__import__('ability_search').CandidateMemo(),snapshots={},identity={},
                        closest_abilities=load('seed_search_policy')(source,'different')['allowed'],hp_key='hp_key',hp_bound='hp_bound',
                        destination=Path(directory),preparation=Path(directory),request=dict(source_sha256='a'*64),
                        write_new=lambda path,value:records.update({path.name:copy.deepcopy(value)}),

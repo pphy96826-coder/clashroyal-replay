@@ -1,6 +1,6 @@
 # 官服 HTML 回放 · 纯安卓适配
 
-> 最新补丁：[hotfix66 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261022-hotfix66) · [更新说明与验证范围](更新说明-hotfix66.md)。同签名覆盖安装即可；以下 hotfix65 图文安装流程与完整资料包仍可参考，APK 请使用 hotfix66。本次尚未完成整局播放验收。
+> 最新补丁：[hotfix67 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261022-hotfix67) · [更新说明与验证范围](更新说明-hotfix67.md)。包含灵魂女皇修复与匹配重复工作优化，同签名覆盖安装即可；以下 hotfix65 图文流程与完整资料包仍可参考，APK 请使用 hotfix67。本次尚未完成安卓整局耗时和播放实测。
 
 **[下载 hotfix65](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix65)** · [PDF 版教程](安卓适配图文教程.pdf) · [离线 HTML](安卓适配图文教程.html) · [本版更新说明](更新说明-hotfix65.md) · [非 Root 安卓与 iOS 方案](../docs/非Root安卓与iOS播放方案.md) · [← 返回仓库首页](../README.md)
 
