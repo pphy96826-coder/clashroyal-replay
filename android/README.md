@@ -1,8 +1,8 @@
 # 官服 HTML 回放 · 纯安卓适配
 
-> 最新补丁：[hotfix67 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261022-hotfix67) · [更新说明与验证范围](更新说明-hotfix67.md)。包含灵魂女皇修复与匹配重复工作优化，同签名覆盖安装即可；以下 hotfix65 图文流程与完整资料包仍可参考，APK 请使用 hotfix67。本次尚未完成安卓整局耗时和播放实测。
+> 最新补丁：[hotfix70 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70) · [更新说明与验证范围](更新说明-hotfix70.md)。同签名覆盖更新、保留应用数据；下文 hotfix65 图文流程及完整资料包继续参考，APK 请用 hotfix70。已核验安卓1安装版本，未做新版整局实测。Windows 翻译版请继续使用其独立发布包。
 
-**[下载 hotfix65](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261021-hotfix65)** · [PDF 版教程](安卓适配图文教程.pdf) · [离线 HTML](安卓适配图文教程.html) · [本版更新说明](更新说明-hotfix65.md) · [非 Root 安卓与 iOS 方案](../docs/非Root安卓与iOS播放方案.md) · [← 返回仓库首页](../README.md)
+**[下载最新 hotfix70](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70)** · [PDF 版教程](安卓适配图文教程.pdf) · [离线 HTML](安卓适配图文教程.html) · [最新更新说明](更新说明-hotfix70.md) · [非 Root 安卓与 iOS 方案](../docs/非Root安卓与iOS播放方案.md) · [← 返回仓库首页](../README.md)
 
 2026-10-21 / Android 2026.10.21-hotfix65 / 本页是**纯安卓适配**（控制台、游戏、浏览器都在同一个安卓系统里）的完整配置图文教程，取代旧版安卓教程和旧版 Mac 适配。Windows 电脑请用另一套 [Windows + MuMu 一体版](../docs/mumu-android/安装教程.md)。源码在 [source/android-native/](../source/android-native/README.md)。
 

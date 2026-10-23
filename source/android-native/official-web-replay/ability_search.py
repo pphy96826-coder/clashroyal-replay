@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import math
 from collections import OrderedDict
 from source_completion import source_completed,source_failure
 
@@ -294,7 +295,8 @@ def damage_lower_bound(source, preparation, report):
 
 
 def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:False,
-           closest=None, stop_early=lambda:False, initial=None, bound=None, incumbent=None, patience=None):
+           closest=None, stop_early=lambda:False, initial=None, bound=None, incumbent=None, patience=None,
+           strategy='best_first', state=None):
     """Best-first branch and bound over ambiguous ability targets.
 
     closest(candidate, report) -> sortable key (lower is closer); key[0] is the
@@ -313,6 +315,11 @@ def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:
     (an exact match is impossible at this seed) and the closest result has not
     improved for this many runs, return the closest result instead of continuing.
     """
+    if strategy == 'coverage':
+        return coverage_search(preparation, execute, matches, max_attempts=max_attempts,
+            cancelled=cancelled, closest=closest, stop_early=stop_early,
+            initial=initial, bound=bound, state=state)
+    if strategy != 'best_first': raise ValueError('unknown ability search strategy')
     import heapq
     if type(max_attempts) is not int or not 1<=max_attempts<=4096:
         raise ValueError('invalid candidate search bound')
@@ -397,4 +404,101 @@ def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:
     error=RuntimeError(reason+'；未发布回放，不把终局血量相同当作过程唯一正确。')
     error.search_report=dict(attempts=history,remaining=len(pending),exhaustive=False,pruned=pruned,bound_monotonic=monotonic,
         explored_branches_exhausted=not pending,full_match_possibilities_exhausted=False)
+    raise error
+
+
+def coverage_search(preparation, execute, matches, *, max_attempts=32,
+                    cancelled=lambda:False, closest=None, stop_early=lambda:False,
+                    initial=None, bound=None, state=None):
+    """Resumable, coverage-first traversal; no plateau/score-based elimination.
+
+    A small reachable tree is exhausted. Larger trees keep their frontier for
+    another bounded slice. Descend to a leaf, then explore the oldest sibling
+    subtree: this covers different early choices before polishing one area.
+    Only proven elixir impossibility prunes; tower score orders final results,
+    never decides whether an untried skill combination deserves exploration.
+
+    State is task-local Python data, not a native checkpoint. The caller MUST
+    discard it if process/resource scope changes; every execute must be released.
+    It cannot resume a live battle, and contains no reusable native handles.
+    """
+    from collections import deque
+    if type(max_attempts) is not int or not 1 <= max_attempts <= 4096:
+        raise ValueError('invalid candidate search bound')
+    if closest is None: raise ValueError('coverage search requires a final constraint/ranking callback')
+    base=copy.deepcopy(preparation);base.pop('ability_target_choices',None)
+    fingerprint=hashlib.sha256(json.dumps(base,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+    if state is None: state={}
+    if state.get('fingerprint') != fingerprint:
+        state.clear()
+        frontier=deque([dict(initial or {})])
+        if initial: frontier.append({})  # never freeze cross-seed ordinals
+        state.update(fingerprint=fingerprint,frontier=frontier,seen=set(),history=[],best=None,
+                     pruned=0,branch_points={},complete=0)
+    pending=state['frontier'];seen=state['seen'];history=state['history']
+    started=len(history);stopped=False;exact=False
+    def signature(choices): return tuple(sorted(choices.items()))
+    def enqueue(children):
+        fresh=[c for c in children if signature(c) not in seen]
+        if fresh:
+            pending.appendleft(fresh[0])  # finish a trajectory rather than breadth-only partials
+            pending.extend(fresh[1:])
+    while pending and len(history)-started < max_attempts:
+        if cancelled(): raise RuntimeError('技能候选搜索已取消；未提交后续候选')
+        if stop_early(): stopped=True;break
+        choices=pending.popleft();key=signature(choices)
+        if key in seen: continue
+        seen.add(key)
+        candidate=copy.deepcopy(base);candidate['ability_target_choices']=dict(choices)
+        report,evidence=execute(candidate,len(history))
+        row=dict(choices=dict(choices),evidence=evidence,error=report.get('error'),
+                 native_accepted=report.get('native_accepted',0),
+                 failure=source_failure(report) if report.get('error') else None,
+                 first_settlement_tick=(report.get('battle_state') or {}).get('first_settlement_tick'))
+        history.append(row)
+        if source_completed(report,len(candidate['events'])):
+            state['complete']+=1
+            score=closest(candidate,report);cost=score[0] if isinstance(score,tuple) else score
+            if type(cost) not in (int,float) or not math.isfinite(cost) or cost >= ELIXIR_MISMATCH_COST:
+                row['elixir_rejected']=True
+                continue
+            if state['best'] is None or score < state['best'][0]:
+                state['best']=(score,candidate,report,len(history)-1)
+            if matches(candidate,report):
+                # A caller's exact predicate can never bypass the elixir rank gate.
+                state['best']=(score,candidate,report,len(history)-1);exact=True;break
+        elif report.get('error') == 112 and type(report.get('native_code')) is int and 1 <= report['native_code'] <= 1024:
+            index=report.get('event_index');count=report['native_code']
+            if type(index) is not int or not 0 <= index < len(candidate['events']) or candidate['events'][index]['kind'] != 'activate_ability':
+                raise ValueError('ambiguous report is not a source ability')
+            state['branch_points'][index]=max(count,state['branch_points'].get(index,0))
+            if bound is not None:
+                lower,_=bound(candidate,report);row['lower_bound']=lower
+                if lower is not None and lower >= ELIXIR_MISMATCH_COST:
+                    state['pruned']+=1;continue
+            # An old ordinal may no longer exist at this seed. Rebuild this and
+            # all later decisions from actual native ambiguity, including count=1.
+            prefix={k:v for k,v in choices.items() if int(k)<index}
+            enqueue([dict(prefix,**{str(index):v}) for v in range(count)])
+        # Other failures end only this branch, never suppress untried siblings.
+    # Remove duplicate pending hints so "exhausted" describes real work left.
+    remaining=[];queued=set()
+    for choices in pending:
+        key=signature(choices)
+        if key not in seen and key not in queued: remaining.append(choices);queued.add(key)
+    pending.clear();pending.extend(remaining)
+    result=dict(strategy='coverage',attempts=copy.deepcopy(history),slice_attempts=len(history)-started,
+                remaining=len(pending),pruned=state['pruned'],complete_candidates=state['complete'],
+                branch_points={str(k):v for k,v in sorted(state['branch_points'].items())},
+                explored_branches_exhausted=not pending,exhaustive=not pending and not exact,
+                full_match_possibilities_exhausted=False,unique_solution_proven=False,
+                stopped_by_user=stopped,plateau_stopping=False,inferred=True,
+                ambiguous=bool(state['branch_points'] or initial),final_hp_matched=exact)
+    if state['best'] is not None:
+        _,candidate,report,index=state['best']
+        result.update(chosen_attempt=index,closest_selected=not exact)
+        return copy.deepcopy(candidate),copy.deepcopy(report),result
+    error=RuntimeError('技能组合尚未找到通过圣水与整局执行校验的结果；'+
+        ('当前可达分支已遍历' if not pending else '已保留未探索分支，等待后续覆盖预算')+'；未发布回放。')
+    error.search_report=result
     raise error

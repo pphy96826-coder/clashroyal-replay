@@ -6,10 +6,10 @@
 
 | 平台 | 安装教程 | 下载 | 源码文件夹 |
 | --- | --- | --- | --- |
-| **Mac**（Apple Silicon，MuMu 模拟器 Pro） | [纯安卓适配教程 · 第 3 节](android/README.md) | [hotfix67](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261022-hotfix67) | [`source/android-native/`](source/android-native/README.md) |
+| **Mac**（Apple Silicon，MuMu 模拟器 Pro） | [纯安卓适配教程 · 第 3 节](android/README.md) | [hotfix70](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70) | [`source/android-native/`](source/android-native/README.md) |
 | **Windows**（MuMu 6.6.4.0） | [Windows + MuMu 一体版教程](docs/mumu-android/安装教程.md) | [mumu-android hotfix3](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261022-hotfix3) | [`source/android-adaptation/`](source/android-adaptation/README.md)（共用模块在 `source/windows-adaptation/project/`） |
-| **已 Root 的安卓手机** | [纯安卓适配教程 · 第 4 节](android/README.md) | [hotfix67](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261022-hotfix67) | [`source/android-native/`](source/android-native/README.md) |
-| **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix67](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261022-hotfix67) | [`source/android-native/`](source/android-native/README.md) |
+| **已 Root 的安卓手机** | [纯安卓适配教程 · 第 4 节](android/README.md) | [hotfix70](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70) | [`source/android-native/`](source/android-native/README.md) |
+| **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix70](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70) | [`source/android-native/`](source/android-native/README.md) |
 | iPhone / iPad | 没有本机方案，只能远程观看：[可能的播放方法](docs/非Root安卓与iOS播放方案.md) | — | — |
 
 ## 仓库结构
@@ -101,6 +101,12 @@ APK 已内置 Python 3.14.8、Clang / LLDB 21.1.8、ARM64 运行工具及 MuMu �
 ### 旧 Windows 桌面方案
 
 旧桌面适配已由本方案替换为默认入口。[历史完整环境](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/windows-mumu-20261019) 仍在 Releases 中保留供回退。`source/windows-adaptation/` 保留旧桌面代码和原始验证 C++ 源码，一体版的构建与测试仍使用其中的 `project/official-web-replay/`。
+
+## 纯安卓适配 · 2026-10-23 hotfix70
+
+[下载 hotfix70 APK 与校验和](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70) · [更新说明与验证范围](android/更新说明-hotfix70.md)
+
+包含 hotfix67–69：完整候选当场核验，全部匹配立即停止种子搜索；技能组合按覆盖优先分轮搜索，不因连续无改善淘汰；综合差距列出塔血、时间、双方圣水明细。提前结算或终局不一致时提示检查客户端版本和录像时期的平衡调整，修正提前结算被误报为技能目标冲突。325 项工作区测试通过，已在安卓1保留数据覆盖安装并核验版本；未做新版整局或种子速度实测。Mac + MuMu Pro、已 Root 安卓和兼容的安卓虚拟机共用此 APK；Windows 的独立翻译版没有变更。
 
 ## 纯安卓适配 · 2026-10-22 hotfix67
 

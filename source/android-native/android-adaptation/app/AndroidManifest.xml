@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.royale.replay.android" android:versionCode="2026102267" android:versionName="2026.10.22-hotfix67">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.royale.replay.android" android:versionCode="2026102370" android:versionName="2026.10.23-hotfix70">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.INTERNET" />

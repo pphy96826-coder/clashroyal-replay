@@ -59,6 +59,52 @@ class PageParsingTests(unittest.TestCase):
         self.assertIn("'app/device_import.py':ROOT/'device/device_import.py'",refresh)
 
 
+class ScoreBreakdownDisplayTests(unittest.TestCase):
+    def setUp(self):tower_stub()
+
+    def test_score_components_add_up_and_time_difference_is_not_raw_penalty(self):
+        r=report(tick=267*20+99)
+        r['battle_state']['towers'][0]['hp']-=701
+        breakdown=load('page_breakdown')(source(),{},r)
+        cost=load('page_comparison')(source(),{},r)[1]
+        self.assertEqual((cost,breakdown['hp_difference'],breakdown['time_penalty'],breakdown['elixir_penalty']),(8601,701,7900,0))
+        text=load('cost_text')(cost,breakdown)
+        self.assertIn('综合差距 8601 = 塔血差 701 + 时间罚分 7900 + 圣水罚分 0',text)
+        self.assertIn('终局晚4.95 秒',text)
+        self.assertIn('蓝方溢出圣水',text);self.assertIn('红方溢出圣水',text)
+
+    def test_zero_cost_still_shows_tolerated_time_and_actual_truncation_differences(self):
+        r=report(leaked=(143799,116634),tick=267*20-1)
+        breakdown=load('page_breakdown')(source(),{},r)
+        cost=load('page_comparison')(source(),{},r)[1]
+        text=load('cost_text')(cost,breakdown)
+        self.assertIn('综合差距 0 = 塔血差 0 + 时间罚分 0 + 圣水罚分 0',text)
+        self.assertIn('终局早0.05 秒',text)
+        self.assertIn('差 +0.0099（通过网页截断范围）',text)
+        self.assertIn('差 +0.0034（通过网页截断范围）',text)
+
+    def test_elixir_failure_names_the_side_and_includes_the_actual_penalty(self):
+        r=report(leaked=(153700,116600))
+        breakdown=load('page_breakdown')(source(),{},r)
+        cost=load('page_comparison')(source(),{},r)[1]
+        self.assertEqual(breakdown['elixir_penalty'],1002000)
+        text=load('cost_text')(cost,breakdown)
+        self.assertIn('圣水罚分 1002000',text)
+        self.assertIn('蓝方溢出圣水：网页 14.37 / 模拟 15.3700，差 +1.0000（不通过）',text)
+
+    def test_missing_values_are_unknown_not_fake_zeroes(self):
+        s=source(None);s.pop('source_duration_seconds')
+        breakdown=load('page_breakdown')(s,{},dict(report(),elixir=None,elixir_at_page_end=None))
+        text=load('cost_text')(0,breakdown)
+        self.assertIn('时间罚分 未知',text);self.assertIn('终局时间差未知',text)
+        self.assertIn('蓝方溢出圣水：缺少比对数据',text)
+
+    def test_ready_queue_keeps_the_same_candidate_breakdown(self):
+        java=(ROOT/'app/src/local/royale/replay/android/ConsoleActions.java').read_text()
+        self.assertIn('check+state.optString("page_match_detail","")',java)
+        self.assertIn("context['page_match_detail']=cost_text(difference,breakdown)",seed_tests.SOURCE)
+
+
 class ElixirCheckTests(unittest.TestCase):
     def setUp(self):
         tower_stub()
@@ -136,7 +182,7 @@ class ElixirCheckTests(unittest.TestCase):
     def test_progress_never_shows_a_placeholder_tier(self):
         playback=(ROOT/'device/device_playback.py').read_text()
         self.assertNotIn("当前最接近：'+tier_names[best[2]]",playback)
-        self.assertIn("return '尚无溢出圣水与网页一致的完整组合' if best[4] is None else tier_names[best[2]]+cost_text(best[3])",playback)
+        self.assertIn("tier_names[best[2]]+cost_text(best[3],page_breakdown(read(source),best[4][0],best[4][1]))",playback)
         header=(SHARED/'source_execution.h').read_text()
         self.assertIn('inline constexpr int elixir_window_ticks=20;',header)
 
@@ -241,8 +287,8 @@ class ElixirGateRunnerTests(unittest.TestCase):
         self.assertEqual(records['seed-search.json']['fixed_ability_choices'],{'40':1,'52':0,'60':1})
         self.assertEqual(runner.search_options[1]['initial'],{'40':1,'52':0,'60':1})
         # Elixir only constrains: the seed still enumerates its own branches.
-        self.assertEqual(runner.search_options[1]['max_attempts'],12)
-        self.assertEqual(runner.search_options[1]['patience'],6)
+        self.assertEqual(runner.search_options[1]['max_attempts'],32)
+        self.assertIsNone(runner.search_options[1]['patience'])
         # Without elixir evidence nothing is fixed.
         runner.elixir_consistent={}
         scope,calls,records=runner.run_gate(['hunter'],fail_abilities=True,seeds=(100,))

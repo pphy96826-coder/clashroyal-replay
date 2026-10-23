@@ -14,7 +14,7 @@ SOURCE=(ROOT/'device/device_playback.py').read_text()
 
 def load(name):
     tree=ast.parse(SOURCE)
-    names={name,'page_tower_comparison'} if name=='page_comparison' else {name}
+    names={name,'page_tower_comparison'} if name in ('page_comparison','page_breakdown') else {name}
     nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in names)
            or (isinstance(n,ast.Assign) and any(getattr(t,'id','')=='SEED_ATTEMPTS' for t in n.targets))]
     nodes+=[n for n in tree.body if isinstance(n,ast.Assign) and any(getattr(t,'id','')=='PAGE_MATCH_TIERS' for t in n.targets)]
@@ -162,6 +162,12 @@ class SeedPolicyTests(unittest.TestCase):
         def search(candidate,execute,match,*,cancelled,**options):
             calls['search'].append(candidate['initialization_only']['rndSeed'])
             self.search_options.append(options)
+            if options.get('strategy')=='coverage':
+                state=options['state'];history=state.setdefault('history',[])
+                for index in range(options['max_attempts']):execute(candidate,len(history)+index)
+                history.extend([{}]*options['max_attempts'])
+                # Model a large tree when requested; normal fixture is exhausted.
+                state['frontier']=[{}] if getattr(self,'large_tree',False) else []
             if fail_abilities:
                 error=RuntimeError('strict ability search exhausted')
                 error.search_report=dict(explored_branches_exhausted=True)
@@ -174,16 +180,19 @@ class SeedPolicyTests(unittest.TestCase):
             if differences is not None:return ('same_towers',differences[report['seed']])
             return ('exact',0) if report['seed']==100 else (tier,0 if tier=='exact' else 123)
         def calibrate(candidate,deal,seen):candidate['native_deal_ready']=True;return candidate
+        def execute_stub(candidate,index):
+            return dict(error=114,native_accepted=0),dict(attempt='fixture-'+str(index))
         with tempfile.TemporaryDirectory() as directory:
             scope=dict(aligned=aligned,delayed=copy.deepcopy(aligned),source='source',read=lambda path:source,
                        seed_search_policy=load('seed_search_policy'),seed_search_note=load('seed_search_note'),
-                       PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different','unknown'),SEED_ATTEMPTS=60,SCREEN_RUNS=1,SCREEN_RUNS_UNFIXED=12,REFINE_SEEDS=3,REFINE_RUNS=24,
+                       PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different','unknown'),SEED_ATTEMPTS=60,SCREEN_RUNS=32,SCREEN_RUNS_UNFIXED=32,REFINE_RUNS=16,SEED_RUN_LIMIT=96,SEED_CANDIDATE_BUDGET=getattr(self,'total_budget',2048),
                        rank=lambda t,d:(type(d) is int and d>=1000000,('exact','same_towers','same_winner','different','unknown').index(t),d if d is not None else 1<<30),
-                       search=search,execute_candidate=None,terminal_hp_matches=lambda *args:True,page_comparison=compare,page_towers=lambda *args:[],
+                       search=search,execute_candidate=execute_stub,terminal_hp_matches=lambda *args:True,page_comparison=compare,page_towers=lambda *args:[],
                        page_breakdown=lambda source,candidate,report:dict(hp_difference=compare(source,candidate,report)[1],time_difference_seconds=None,page_seconds=None,simulated_seconds=None,elixir_matched=None),
-                       cost_text=lambda cost:'',elixir_gate=getattr(self,'elixir_gate_fn',lambda *args:getattr(self,'elixir_refusal',None)),elixir_consistent=dict(getattr(self,'elixir_consistent',{})),ELIXIR_MISMATCH_COST=1000000,
+                       cost_text=lambda cost,breakdown=None:'',elixir_gate=getattr(self,'elixir_gate_fn',lambda *args:getattr(self,'elixir_refusal',None)),elixir_consistent=dict(getattr(self,'elixir_consistent',{})),ELIXIR_MISMATCH_COST=1000000,
                        restore=lambda result:None,selected_candidate=selected,context={},
                        candidate_memo=__import__('ability_search').CandidateMemo(),snapshots={},identity={},
+                       candidate_scope=lambda identity:dict(generation=1),
                        closest_abilities=load('seed_search_policy')(source,'different')['allowed'],hp_key='hp_key',hp_bound='hp_bound',
                        destination=Path(directory),preparation=Path(directory),request=dict(source_sha256='a'*64),
                        write_new=lambda path,value:records.update({path.name:copy.deepcopy(value)}),
@@ -229,9 +238,20 @@ class SeedPolicyTests(unittest.TestCase):
             self.assertEqual(scope['context']['seed_attempts'],1)
             # Closest six-tower combination first; the seed reruns it within 16 attempts.
             self.assertEqual(self.search_options[0]['closest'],'hp_key')
-            self.assertEqual(self.search_options[1],dict(initial={'3':1},closest='hp_key',max_attempts=1,patience=None,incumbent=123,bound=scope['hp_bound']))
+            options=self.search_options[1]
+            self.assertEqual({k:v for k,v in options.items() if k not in ('state','stop_early')},dict(initial={'3':1},closest='hp_key',max_attempts=32,patience=None,incumbent=None,bound=scope['hp_bound'],strategy='coverage'))
+            self.assertIs(options['stop_early'],scope['seed_stop'])
             _,calls,_=self.run_gate([card],tier='exact')
             self.assertEqual(calls,dict(seeds=[],search=[42],probe=[]))
+
+    def test_first_fully_matching_seed_stops_without_running_rest_of_plan(self):
+        scope,calls,records=self.run_gate(['hunter'],seeds=(1,100,101,102,103))
+        self.assertEqual(calls['search'],[42,1,100])
+        self.assertEqual(scope['context']['seed_attempts'],2)
+        self.assertEqual(scope['context']['page_match'],'exact')
+        self.assertEqual([row['seed'] for row in records['seed-search.json']['attempts']],[1,100])
+        self.assertIn("status('validating','已找到全项匹配候选，停止搜索其余种子",SOURCE)
+        self.assertNotIn('check_elixir=False',SOURCE)
 
     def test_zero_attempt_messages_never_claim_seeds_were_tried(self):
         note=load('seed_search_note')
@@ -254,10 +274,11 @@ class SeedStopTests(unittest.TestCase):
         self.assertIn("closest=hp_key if closest_abilities else None,stop_early=seed_stop if closest_abilities else lambda:False",SOURCE)
         # Seeds rerun the chosen combination first, within a small bound.
         self.assertIn("max_attempts=SCREEN_RUNS if complete_fixed else SCREEN_RUNS_UNFIXED",SOURCE)
-        self.assertIn("sorted(screened,key=lambda item:item[0])[:REFINE_SEEDS]",SOURCE)
+        self.assertIn('pending=list(screened);step=0',SOURCE)
+        self.assertNotIn('[:REFINE_SEEDS]',SOURCE)
         self.assertIn("ability_search_active=True",SOURCE)
         self.assertIn("if not getattr(error,'search_report',{}).get('explored_branches_exhausted'):raise",SOURCE)
-        self.assertIn("cancelled=lambda:(destination/'stop-request.json').exists() or seed_stop(),",SOURCE)
+        self.assertIn("stop_early=seed_stop if closest_abilities else lambda:False,bound=hp_bound,",SOURCE)
         self.assertIn("if best[4] is None:",SOURCE)
         # Checked before each seed and between calibration probes, never inside a native attempt.
         self.assertIn("if seed_stop():seed_report['stopped_by_user']=True;break",block)
@@ -624,21 +645,42 @@ class SeedFallbackTests(unittest.TestCase):
         self.assertLess(len(result['attempts']),60)
 
 
-class SuccessiveHalvingTests(unittest.TestCase):
+class CoverageSchedulingTests(unittest.TestCase):
     run_gate=SeedPolicyTests.run_gate
     source=SeedPolicyTests.source
-    def test_screen_every_seed_once_then_refine_only_the_closest(self):
+    def test_small_exhausted_trees_are_not_searched_again(self):
         diffs={42:900,1:800,2:300,3:700,4:200,5:600}
         scope,calls,records=self.run_gate(['hunter'],seeds=(1,2,3,4,5),differences=diffs)
         self.assertNotIn('raised',scope)
         # One deal probe per seed while screening.
         self.assertEqual(calls['probe'],['seed-%d-deal-0'%n for n in range(5)])
-        # 1 original + 5 screened + 3 refined searches; refinement visits the 3 closest seeds, closest first.
-        self.assertEqual(calls['search'],[42,1,2,3,4,5,4,2,5])
-        self.assertEqual(self.search_options[6]['max_attempts'],24)
+        self.assertEqual(calls['search'],[42,1,2,3,4,5])
         self.assertEqual(scope['context']['random_seed'],4)
         phases=[row['phase'] for row in records['seed-search.json']['attempts']]
-        self.assertEqual(phases,['screen']*5+['refine']*3)
+        self.assertEqual(phases,['screen']*5)
+
+    def test_large_trees_get_round_robin_coverage_even_when_score_is_bad(self):
+        self.large_tree=True
+        scope,calls,records=self.run_gate(['hunter'],seeds=(1,2,3),differences={42:100,1:900,2:300,3:700})
+        self.assertNotIn('raised',scope)
+        self.assertEqual(calls['search'],[42,1,2,3]+[1,2,3]*4)
+        self.assertTrue(all(o['patience'] is None and o['incumbent'] is None for o in self.search_options[1:]))
+        self.assertTrue(all(len(slot['state']['history'])==96 for slot in scope['coverage_states'].values()))
+        self.assertEqual(scope['context']['random_seed'],42)  # no worse run overwrites incumbent
+
+    def test_shared_budget_is_enforced_across_all_seeds_and_continuations(self):
+        self.large_tree=True;self.total_budget=80
+        scope,calls,records=self.run_gate(['hunter'],seeds=(1,2,3,4),differences={42:100,1:900,2:300,3:700,4:800})
+        self.assertEqual(calls['search'],[42,1,2,3])
+        self.assertEqual([o['max_attempts'] for o in self.search_options[1:]],[32,32,16])
+        self.assertEqual(records['seed-search.json']['candidate_budget_used'],80)
+        self.assertTrue(records['seed-search.json']['coverage_remaining'])
+
+    def test_seeds_without_a_complete_candidate_still_get_continuation(self):
+        self.large_tree=True
+        scope,calls,records=self.run_gate(['hunter'],fail_abilities=True,seeds=(1,2,3))
+        self.assertIn('未发布回放',scope['raised'])
+        self.assertEqual(calls['search'],[42,1,2,3]+[1,2,3]*4)
 
 
 class UnfixedScreeningTests(unittest.TestCase):
@@ -649,8 +691,8 @@ class UnfixedScreeningTests(unittest.TestCase):
         # The original seed's search fails; every screened seed then gets a real search budget.
         self.assertEqual(calls['search'][:2],[42,100])
         self.assertEqual(self.search_options[1]['initial'],{})
-        self.assertEqual(self.search_options[1]['max_attempts'],12)
-        self.assertEqual(self.search_options[1]['patience'],6)
+        self.assertEqual(self.search_options[1]['max_attempts'],32)
+        self.assertIsNone(self.search_options[1]['patience'])
 
 
 class PreflightRejectionTests(unittest.TestCase):

@@ -344,7 +344,9 @@ final class ConsoleActions {
                 :match.equals("different")?"⚠ 终局与网页不符（"+tried+"），过程与原局不同。"
                 :match.equals("unknown")?"终局有塔缺少网页数据或模拟记录，无法完整比对；未当作不一致。"
                 :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";
-            return new String[]{"下一场已就绪",check+"点「播放下一个」约 15 秒开播；游戏客户端不重启时约 2 小时内有效。"};
+            String versionHint=(match.equals("same_towers")||match.equals("same_winner")||match.equals("different"))
+                ?state.optString("version_check_hint","请先检查游戏客户端版本及回放日期，确认是否跨越平衡性调整；版本或战斗参数变化可能造成差异，不能仅据此归因于随机种子或技能目标。") :"";
+            return new String[]{"下一场已就绪",check+state.optString("page_match_detail","")+versionHint+"点「播放下一个」约 15 秒开播；游戏客户端不重启时约 2 小时内有效。"};
         }
         if(seedSearching(state))return new String[]{abilityMatching(state)?"正在匹配技能目标":"正在匹配随机种子",state.optString("message","")};
         return new String[]{wanted?"准备中 · 完成后自动开播":"正在提前准备下一场",
