@@ -3,6 +3,11 @@
 
 def source_failure(report):
     """Name the rejected queued command, not the next unsubmitted event."""
+    if report.get('error')==123:
+        floor=report.get('hp_floor_violation') or {}
+        return '分支在 %.2f 秒越过 HTML 终局塔血下限：玩家%s，塔位%s，当前%s，至少%s；已剪枝'%(
+            floor.get('native_tick',0)/20,floor.get('owner','?'),floor.get('tower_slot','?'),floor.get('actual_hp','?'),floor.get('expected_min','?'))
+    if report.get('error')==125:return '技能身份或六塔观察无法验证；本候选不接受'
     if report.get('error')==112:
         return '第%d条技能的合法目标数为%d，技能目标未唯一确定（适配器112）'%(report.get('event_index',-1)+1,report.get('native_code',0))
     failed=next((row for row in report.get('dispatch',[]) if row.get('code',-1)>0),None)

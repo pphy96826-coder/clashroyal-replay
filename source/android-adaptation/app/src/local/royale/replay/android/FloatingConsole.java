@@ -114,7 +114,7 @@ public final class FloatingConsole extends Service {
         panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(dp(12),dp(10),dp(12),dp(12));panel.setBackground(QueueRows.shape(this,0xfa101b2e,14));
         text(panel,"回放悬浮控制台 · 点圆形按钮收起",13,0xff9aaec8);
         status=text(panel,"",16,0xff80e8d5);
-        detail=text(panel,"",12,0xffb4c4da);detail.setMaxLines(4);
+        detail=text(panel,"",12,0xffb4c4da);detail.setMaxLines(9);
         noteView=text(panel,"",12,0xffffd27a);noteView.setMaxLines(3);
         offerBox=new LinearLayout(this);offerBox.setOrientation(1);offerBox.setPadding(dp(10),dp(8),dp(10),dp(8));offerBox.setBackground(QueueRows.shape(this,0xff1d3350,10));
         offerText=new TextView(this);offerText.setTextSize(13);offerText.setTextColor(0xfff0f5ff);offerBox.addView(offerText);
@@ -159,6 +159,9 @@ public final class FloatingConsole extends Service {
             chip(browser,"小窗打开 Edge（RoyaleAPI）",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
                 setExpanded(false);work(new Job(){public String run()throws Exception{return EdgeWindow.open(FloatingConsole.this);}});}});
         }
+        LinearLayout resetRow=row();
+        chip(resetRow,"重置所有回放进程",0xff8a3340,new View.OnClickListener(){public void onClick(View v){
+            work(new Job(){public String run()throws Exception{return ReplayReset.reset(FloatingConsole.this);}});}});
         LinearLayout exits=row();
         chip(exits,"完整控制台",0xff2c4a6e,new View.OnClickListener(){public void onClick(View v){
             setExpanded(false);startActivity(new Intent(FloatingConsole.this,MainActivity.class).addFlags(0x34000000));}});

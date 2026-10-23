@@ -123,4 +123,6 @@ def render(doc, run_source=False, native_replay=None):
                   choices.get(str(index), -1)]
         text += '{'+','.join(map(str,values))+'},\n'
     text += '};\nstatic constexpr int bootstrap_source_end='+str(doc['initialization_only']['endTick'])+';\n'
+    page_end = doc.get('page_end_tick')
+    text += 'static constexpr int bootstrap_page_end='+str(page_end if type(page_end) is int and page_end > 0 else -1)+';\n'
     return text

@@ -7,13 +7,23 @@ with zipfile.ZipFile(io.BytesIO(raw)) as base:
  files={n:base.read(n) for n in base.namelist() if n!='runtime-files.json'}
 for name in ['device_tools.py','device_build.py','device_import.py','device_init_check.py','device_session.py','device_runtime.py','device_playback.py','phone_bootstrap_gate.py','run_scene_gate.py','mumu_expression.py','mumu_runtime.py','mumu_platform.py','mumu_compiler.py','mumu_debugger.py','mumu_compile.py','mumu_ownership.py','proc_maps.py']:files['app/'+name]=(device/name).read_bytes()
 files['app/mapped_elf.py']=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay/mapped_elf.py').read_bytes()
+files['app/device_reset.py']=(device/'device_reset.py').read_bytes()
+files['app/prediction_progress.py']=(device/'prediction_progress.py').read_bytes()
+files['app/skill_candidate_pool.py']=(device/'skill_candidate_pool.py').read_bytes()
+files['app/alns_skills.py']=(device/'alns_skills.py').read_bytes()
 files['app/device_metadata.py']=(device/'device_metadata.py').read_bytes()
 files['app/preparation_hint.py']=(device/'preparation_hint.py').read_bytes()
 files['app/seed_search_control.py']=(device/'seed_search_control.py').read_bytes()
 files['app/mumu_context.py']=(device/'mumu_context.py').read_bytes()
+files['app/mumu_skill_observer.py']=(device/'mumu_skill_observer.py').read_bytes()
+files['app/skill_checkpoint_search.py']=(device/'skill_checkpoint_search.py').read_bytes()
+files['app/locked_seed_playback.py']=(device/'locked_seed_playback.py').read_bytes()
+files['app/adaptive_skill_search.py']=(device/'adaptive_skill_search.py').read_bytes()
 for name in ('mumu_tower_observer.py','native_observation.py'):files['app/'+name]=(device/name).read_bytes()
-for name in ('tower_profiles.py','ability_search.py','compare_native_result.py'):
+for name in ('tower_profiles.py','ability_search.py','compare_native_result.py','source_completion.py','prepare_native_replay.py','align_native_deal.py','bootstrap_input.py','source_execution.h','native_bootstrap_probe.cpp','failure_recovery.py','import_replay.py','observe_card_levels.py'):
  files['app/'+name]=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay'/name).read_bytes()
+for name in ('source_execution.h','native_bootstrap_probe.cpp'):
+ files['app/native-src/official-web-replay/'+name]=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay'/name).read_bytes()
 files['app/native_runtime_check.py']=(device/'native_runtime_check.py').read_bytes()
 files['app/mumu_elf.py']=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay/elf_contract.py').read_bytes()
 stubs={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (out/'arm-stubs').glob('*.so')}

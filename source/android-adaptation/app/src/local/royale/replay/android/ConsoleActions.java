@@ -28,7 +28,14 @@ final class ConsoleActions {
     private static final Map<String,String> outcomes=new HashMap<String,String>();
     private static final Map<String,Long> tried=new HashMap<String,Long>();
     private static volatile boolean importRequested;
+    static synchronized void resetIntents(){playWhenReady="";importRequested=false;switchRequested=false;tried.clear();outcomes.clear();}
+    static void awaitReset()throws Exception{
+        long deadline=System.currentTimeMillis()+10000;
+        while(starting&&System.currentTimeMillis()<deadline)Thread.sleep(100);
+        if(starting)throw new IOException("队列准备线程仍在结束；重置标记已保留，请稍后再点重置");
+    }
     static void imported(Context context){
+        if(ReplayReset.blocked(context))return;
         importRequested=true;
         try{setAutomatic(context,true);}catch(Exception ignored){}
         SourcePreparation.schedule(context);autoPrepareLater(context);
@@ -91,6 +98,7 @@ final class ConsoleActions {
      * finish a verified terminal first, as before.
      */
     private static void prepareHead(Context context,boolean user)throws Exception{
+        if(ReplayReset.blocked(context)){if(user)throw new IOException("请先完成回放进程重置");return;}
         synchronized(ConsoleActions.class){
             if(starting||PlaybackService.isBusy()){if(user)throw new IOException("已有本机任务正在处理");return;}
             starting=true;
@@ -256,9 +264,12 @@ final class ConsoleActions {
                 :match.equals("same_winner")?"⚠ 胜负与网页一致，但被摧毁的塔不同（"+tried+"）。"
                 :match.equals("different")?"⚠ 终局与网页不符（"+tried+"），过程与原局不同。"
                 :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";
-            return new String[]{"下一场已就绪",check+"点「播放下一个」即可在游戏里开播；游戏客户端不重启时约 2 小时内有效。"};
+            String versionHint=(match.equals("same_towers")||match.equals("same_winner")||match.equals("different"))
+                ?state.optString("version_check_hint","请先检查游戏客户端版本及回放日期，确认是否跨越平衡性调整；版本或战斗参数变化可能造成差异，不能仅据此归因于随机种子或技能目标。") :"";
+            return new String[]{"下一场已就绪",check+state.optString("page_match_detail","")+versionHint+"点「播放下一个」即可在游戏里开播；游戏客户端不重启时约 2 小时内有效。"};
         }
-        if(state.optString("message","").contains("随机种子"))return new String[]{"正在匹配随机种子",state.optString("message","")};
+        if(phase.equals("simulating"))return new String[]{state.optBoolean("seed_search_active",false)?"正在筛选种子和技能分支":"正在匹配技能分支",PlaybackStatus.detail(state,System.currentTimeMillis()/1000)};
+        if(phase.equals("calibrating")||phase.equals("validating"))return new String[]{PlaybackStatus.title(state),PlaybackStatus.detail(state,System.currentTimeMillis()/1000)};
         if(phase.equals("waiting_preparation_lobby"))return new String[]{"等待游戏前台大厅",state.optString("message","")};
         return new String[]{wanted?"准备中 · 完成后自动开播":"正在提前准备下一场",
             (phase.equals("calibrating")?"校准原生发牌":phase.equals("simulating")?"预演整局":phase.equals("validating")?"核对全部指令":"读取资源并等待大厅")+(wanted?"；不用再点。":"；只做准备，不会自动开播。")};

@@ -43,11 +43,14 @@ def adapt_header(original,prefix):
     return result.replace(old,new)
 
 
-def write_header(source,out,prefix):
+def write_header(source,out,prefix,preparation=None):
     original=(source.parent/'source_execution.h').read_bytes()
-    adapted=adapt_header(original.decode('utf-8'),prefix).encode('utf-8')
+    adapted=adapt_header(original.decode('utf-8'),prefix)
+    from mumu_skill_observer import adapt_header as adapt_skills
+    adapted,skills=adapt_skills(adapted,prefix,preparation or {})
+    adapted=adapted.encode('utf-8')
     path=out/'mumu_source_execution.h';path.write_bytes(adapted)
     return path,{'policy':'verified-owner-id-position-v1','original_header_sha256':hashlib.sha256(original).hexdigest(),
         'generated_header_sha256':hashlib.sha256(adapted).hexdigest(),
         'types_from':'fresh verified native tower input','six_towers_required':True,
-        'health_vtable_and_destructor_guards_preserved':True,'original_header_changed':False}
+        'health_vtable_and_destructor_guards_preserved':True,'original_header_changed':False,'skill_and_hp_observer':skills}

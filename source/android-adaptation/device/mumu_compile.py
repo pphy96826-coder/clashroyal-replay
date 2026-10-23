@@ -5,7 +5,7 @@ from pathlib import Path
 
 from mumu_runtime import bound_imports
 
-def adapt(session,out,source):
+def adapt(session,out,source,preparation=None):
     root=source.parent;imports=bound_imports(session)
     runtime=(root.parent/'runtime-audit-20261014-direct-route-v12/build/runtime_probe.cpp').read_text(encoding='utf-8')
     old='unsigned long long low{},high{}; char mode[5]{};'
@@ -33,7 +33,7 @@ def adapt(session,out,source):
     if original.count(include)!=1:raise ValueError('upstream runtime include changed')
     adapted=original.replace(include,'#include '+json.dumps(runtime_path.as_posix()))
     from mumu_tower_observer import write_header
-    tower_header,tower_evidence=write_header(source,out,'bootstrap' if source.name=='native_bootstrap_probe.cpp' else 'scene')
+    tower_header,tower_evidence=write_header(source,out,'bootstrap' if source.name=='native_bootstrap_probe.cpp' else 'scene',preparation)
     token='#include "source_execution.h"'
     if adapted.count(token)!=1:raise ValueError('audited source observer include changed')
     adapted=adapted.replace(token,'#include '+json.dumps(tower_header.as_posix()))

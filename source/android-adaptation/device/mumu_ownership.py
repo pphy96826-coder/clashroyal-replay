@@ -1,7 +1,7 @@
 """Ownership for idle retained MuMu bootstrap mappings, never foreign modules."""
 import re,json,hashlib
 TOKENS=('libphone_replay_','libcr_web_','libcr_private_','libcr_direct_')
-ATTEMPT=re.compile(r'(?:bootstrap-v[234]|deal-check-[0-9]{1,2}|ability-candidate-[0-9]{1,3}|bootstrap-init|seed-(?:[0-9]|[1-5][0-9])-(?:deal-(?:[0-9]|1[01])|candidate-[0-9]{1,3}))')
+ATTEMPT=re.compile(r'(?:bootstrap-v[234]|deal-check-[0-9]{1,2}|ability-candidate-[0-9]{1,3}|bootstrap-init|seed-(?:[0-9]|[1-5][0-9]|60)-(?:(?:deal|recal)-(?:[0-9]|1[01])|(?:v-|r-|r(?:[0-9]|1[0-9]|2[0-3])-)?candidate-[0-9]{1,3}))')
 
 def released_resources(receipt):
     return (receipt.get('native_transport')=='mumu-nativebridge-v1'

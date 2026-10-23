@@ -1,0 +1,93 @@
+{
+  "total": 344,
+  "successful": true,
+  "suites": [
+    {
+      "name": "hotfix65-port",
+      "tests": 42,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "successful": true
+    },
+    {
+      "name": "prior-regression",
+      "tests": 124,
+      "failures": 0,
+      "errors": 0,
+      "successful": true
+    },
+    {
+      "name": "windows-source",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "successful": true
+    },
+    {
+      "name": "test_prediction_progress",
+      "tests": 11,
+      "successful": true
+    },
+    {
+      "name": "test_spirit_empress_levels",
+      "tests": 11,
+      "successful": true
+    },
+    {
+      "name": "test_search_reuse",
+      "tests": 18,
+      "successful": true
+    },
+    {
+      "name": "test_elixir_approximation",
+      "tests": 10,
+      "successful": true
+    },
+    {
+      "name": "test_skill_candidate_pool",
+      "tests": 17,
+      "successful": true
+    },
+    {
+      "name": "test_mumu_component_batch",
+      "tests": 6,
+      "successful": true
+    },
+    {
+      "name": "test_skill_pool_dispatch",
+      "tests": 13,
+      "successful": true
+    },
+    {
+      "name": "test_same_cost_alns",
+      "tests": 25,
+      "successful": true
+    },
+    {
+      "name": "test_bounded_seed_screening",
+      "tests": 23,
+      "successful": true
+    },
+    {
+      "name": "test_coverage_search",
+      "tests": 15,
+      "successful": true
+    },
+    {
+      "name": "test_version_warning",
+      "tests": 4,
+      "successful": true
+    },
+    {
+      "name": "test_score_breakdown",
+      "tests": 5,
+      "successful": true
+    }
+  ],
+  "game_calls": false,
+  "reference": "c74c51ffc254c1c3570d119ac83e6226fdf3f909",
+  "elixir_margin_is_user_requested_addition": 0.05,
+  "frozen_pool_is_user_requested": true,
+  "same_cost_alns_is_user_requested": true
+}

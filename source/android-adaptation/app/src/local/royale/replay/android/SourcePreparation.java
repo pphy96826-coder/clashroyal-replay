@@ -44,6 +44,7 @@ final class SourcePreparation {
     }
     static synchronized String stage(String id){return stages.containsKey(id)?stages.get(id):"等待解析";}
     static void schedule(final Context supplied){
+        if(ReplayReset.blocked(supplied))return;
         final Context context=supplied.getApplicationContext();
         synchronized(SourcePreparation.class){
             try{org.json.JSONArray rows=ReplayQueue.rows(context.getFilesDir());for(int i=0;i<rows.length();i++){String id=rows.getJSONObject(i).getString("id");if(!stages.containsKey(id))pending.add(id);}}catch(Exception ignored){return;}
@@ -55,7 +56,7 @@ final class SourcePreparation {
         }
     }
     private static void drain(Context context){
-        try{for(;;){String id;
+        try{for(;;){if(ReplayReset.blocked(context))return;String id;
             synchronized(SourcePreparation.class){if(pending.isEmpty())return;id=pending.iterator().next();pending.remove(id);stages.put(id,"解析中");}
             String result="来源已解析";
             try{prepare(context,ReplayQueue.source(context.getFilesDir(),id));}catch(Exception e){result="解析未通过";}

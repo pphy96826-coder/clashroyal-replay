@@ -140,12 +140,14 @@ public final class PlaybackStatus {
     }
     static String detail(JSONObject state,long now){
         String message=state.optString("message","选择 HTML 后自动准备并播放；不使用电脑后端。");
+        if(state.optString("state","").equals("simulating")){String progress=PredictionProgress.text(state,now);if(!progress.isEmpty())message=progress;}
         long updated=state.optLong("updated_at",0),age=Math.max(0,now-updated);
         String phase=state.optString("state","");
         long phaseStart=state.optLong("phase_started_at",0),started=state.optLong("preparation_started_at",0);
         if(state.optBoolean("monitor_active",false)&&phaseStart>0&&started>0
             &&(phase.equals("preparing")||phase.equals("calibrating")||phase.equals("simulating")||phase.equals("validating")||phase.equals("loading")))
             message+="\n本阶段已用 "+Math.max(0,now-phaseStart)+" 秒 · 本次流程已用 "+Math.max(0,now-started)+" 秒";
+        if(phase.equals("simulating")&&state.optDouble("elixir_tolerance_margin",0)>0)message+="\n额外圣水容差每方 0.05；容差内结果标为近似。";
         if(updated>0)message+="\n状态更新："+(age<3?"刚刚":age+" 秒前");
         if((phase.equals("playing")&&age>15)||((phase.equals("preparing")||phase.equals("calibrating")||phase.equals("simulating")||phase.equals("validating")||phase.equals("loading"))&&age>120))message+="\n状态已过期，不能据此确认仍在正常运行；不会自动重试。";
         if(phase.equals("complete")&&(!state.optBoolean("monitor_active",true)||age>30))message+="\n这是已完成记录；实时观察已结束。点重放可重新播放本场，点退出回放可安全关闭游戏回放进程。";

@@ -18,7 +18,8 @@ static bool below(const std::string& value,const std::string& root){return value
 
 int main(int argc,char** argv){
     umask(0077);
-    if(argc!=6 || (std::strcmp(argv[1],"import-source") && std::strcmp(argv[1],"prepare") && std::strcmp(argv[1],"check-tools") && std::strcmp(argv[1],"check-native-tools") && std::strcmp(argv[1],"build-component") && std::strcmp(argv[1],"play") && std::strcmp(argv[1],"recover") && std::strcmp(argv[1],"finish") && std::strcmp(argv[1],"release-preparation")) || getuid()!=0){std::fputs("fixed local replay command required\n",stderr);return 2;}
+    if(argc!=6 || (std::strcmp(argv[1],"import-source") && std::strcmp(argv[1],"prepare") && std::strcmp(argv[1],"check-tools") && std::strcmp(argv[1],"check-native-tools") && std::strcmp(argv[1],"build-component") && std::strcmp(argv[1],"play") && std::strcmp(argv[1],"recover") && std::strcmp(argv[1],"finish") && std::strcmp(argv[1],"release-preparation") && std::strcmp(argv[1],"reset")) || getuid()!=0){std::fputs("fixed local replay command required\n",stderr);return 2;}
+    bool reset=!std::strcmp(argv[1],"reset");
     bool source_only=!std::strcmp(argv[1],"import-source");
     bool native_tools=!std::strcmp(argv[1],"check-native-tools");
     bool tools=!std::strcmp(argv[1],"check-tools")||native_tools;
@@ -37,9 +38,10 @@ int main(int argc,char** argv){
     std::string leaf=slash==std::string::npos?"":destination.substr(slash+1);
     struct stat state{};
     if(app.empty()||!below(home,app+"/files")||!below(source,app+"/files")||!below(parent,app+"/files")
-       ||leaf!=(source_only?"result":tools?"tools-check":build?"native-build":play?"phone-playback":recover?"phone-recovery":finish?"phone-finish":release?"preparation-release":"native-preparation")||lstat(destination.c_str(),&state)==0
+       ||leaf!=(source_only?"result":tools?"tools-check":build?"native-build":play?"phone-playback":recover?"phone-recovery":finish?"phone-finish":release?"preparation-release":reset?"reset-result":"native-preparation")||lstat(destination.c_str(),&state)==0
        ||(source_only&&(source!=parent+"/input.html"||std::strcmp(argv[5],"-")))
-       ||((build||play||recover||finish||release)&&!below(canonical(argv[5]),app+"/files"))
+       ||((build||play||recover||finish||release||reset)&&!below(canonical(argv[5]),app+"/files"))
+       ||(reset&&source!=parent+"/request.json")
        ||stat(parent.c_str(),&state)||state.st_uid<10000){std::fputs("invalid private preparation paths\n",stderr);return 2;}
     PyConfig config;PyConfig_InitIsolatedConfig(&config);
     config.install_signal_handlers=0;config.write_bytecode=0;config.site_import=0;config.safe_path=1;
@@ -71,6 +73,7 @@ int main(int argc,char** argv){
         release?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_playback\ndevice_playback.release_preparation(Path(_source), Path(_output), Path(_apk))\n":
         recover?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_recovery\ndevice_recovery.run(Path(_source), Path(_output), Path(_apk))\n":
         finish?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_playback\ndevice_playback.finish_completed(Path(_source), Path(_output), Path(_apk))\n":
+        reset?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_reset\ndevice_reset.run(Path(_source), Path(_output), Path(_apk))\n":
         play?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_playback\ndevice_playback.run(Path(_source), Path(_output), Path(_apk))\n":
         build?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_build\ndevice_build.run(Path(_source), Path(_output), Path(_apk))\n":
         "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_metadata\ndevice_metadata.run(Path(_source), Path(_output), Path(_apk))\n");

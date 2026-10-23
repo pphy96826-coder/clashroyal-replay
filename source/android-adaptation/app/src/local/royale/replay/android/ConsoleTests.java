@@ -90,6 +90,37 @@ public final class ConsoleTests extends Instrumentation {
         if(SavedReplay.metadata(savedFiles)!=null||!new java.io.File(savedFiles,"source.html").isFile())throw new AssertionError("removal deleted original or remained visible");count++;
         SavedReplay.save(savedFiles,sample,MainActivity.checkedSource(sample));
         if(SavedReplay.metadata(savedFiles)==null)throw new AssertionError("reimport did not restore saved source");count++;
+        JSONObject progressState=new JSONObject().put("state","simulating").put("updated_at",1000);
+        JSONObject prediction=new JSONObject().put("phase","原生模拟中，等待本分支结果").put("candidate",12).put("seed",-1701922553).put("choice_count",3).put("phase_started_at",990);
+        progressState.put("prediction_progress",prediction);
+        String narration=PlaybackStatus.detail(progressState,1001);
+        if(!narration.contains("第 12 次")||!narration.contains("-1701922553")||!narration.contains("11 秒"))throw new AssertionError("live prediction phase missing");count++;
+        if(!narration.contains("尚无溢出圣水与网页一致的完整组合")||narration.contains("当前最优"))throw new AssertionError("placeholder labelled qualified");count++;
+        JSONObject lastPrediction=new JSONObject().put("tick",2457).put("accepted",18).put("event_count",85).put("reason","技能分歧，继续展开").put("next_actors",new org.json.JSONArray().put("BossBandit").put("GoldenKnight"));
+        prediction.put("last",lastPrediction);narration=PlaybackStatus.detail(progressState,1001);
+        if(!narration.contains("2:02")||!narration.contains("18/85")||!narration.contains("首领大盗 / 黄金圣骑"))throw new AssertionError("actual branch stopping point missing");count++;
+        lastPrediction.put("skills",new org.json.JSONArray().put(new JSONObject().put("tick",2457).put("owner",0).put("actor","GoldenKnight").put("cost",1)));
+        lastPrediction.put("elixir",new org.json.JSONArray().put(new JSONObject().put("owner",1).put("simulated",11.6627).put("page",11.66)));
+        narration=PlaybackStatus.detail(progressState,1001);
+        if(!narration.contains("黄金圣骑（1 圣水）")||!narration.contains("11.6627 / 网页 11.66"))throw new AssertionError("skill/elixir details missing");count++;
+        prediction.put("best",new JSONObject().put("hp_difference",491).put("time_difference_seconds",15.8).put("match_cost",30091));
+        narration=PlaybackStatus.detail(progressState,1001);
+        if(!narration.contains("六塔血差 491")||!narration.contains("+15.80 秒")||!narration.contains("含终局时间和溢出圣水"))throw new AssertionError("qualified metrics hidden");count++;
+        prediction.getJSONObject("best").put("time_penalty",29700).put("elixir_penalty",0);
+        narration=PlaybackStatus.detail(progressState,1001);
+        if(!narration.contains("塔血差 491 + 时间罚分 29700 + 圣水罚分 0"))throw new AssertionError("score components not tied to best candidate");count++;
+        prediction.getJSONObject("best").put("time_penalty",JSONObject.NULL);
+        if(!PlaybackStatus.detail(progressState,1001).contains("时间罚分 未知"))throw new AssertionError("unknown timing penalty became zero");count++;
+        lastPrediction.put("failure_explanation","原生引擎已提前结算，请检查客户端版本及回放日期");
+        if(!PlaybackStatus.detail(progressState,1001).contains("请检查客户端版本及回放日期"))throw new AssertionError("terminal version hint hidden");count++;
+        if(!DiagnosticExport.VERSION.equals(getTargetContext().getPackageManager().getPackageInfo(getTargetContext().getPackageName(),0).versionName))throw new AssertionError("diagnostic export reports stale app version");count++;
+        progressState.put("skill_pool_mode",true).put("skill_pool_size",16).put("skill_pool_screen_limit",2);
+        if(!PlaybackStatus.detail(progressState,1001).contains("首轮最多 2/16 组代表候选"))throw new AssertionError("unbounded pool screen shown");count++;
+        progressState.put("alns_allocation",new JSONObject().put("tested_combinations",2).put("deferred_pool_candidates",14).put("refinement_used",3).put("refinement_budget_total",24));
+        narration=PlaybackStatus.detail(progressState,1001);
+        if(!narration.contains("待验证 14 组")||!narration.contains("精修新增 3/24"))throw new AssertionError("deferred pool/budget hidden");count++;
+        progressState.put("state","playing").put("message","已播放");
+        if(PlaybackStatus.detail(progressState,1001).contains("第 12 次"))throw new AssertionError("old prediction covers live playback");count++;
         report.putString("summary","PASS "+count+" console/handoff/status tests; no network or native playback invoked");finish(-1,report);
     }catch(Throwable error){report.putString("error",error.toString());finish(0,report);}}
 }

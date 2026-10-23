@@ -2,6 +2,7 @@
 #include <string>
 #include <chrono>
 #include <vector>
+#include <utility>
 
 namespace web_source {
 struct Selection {uintptr_t first,second;uint32_t packed;};
@@ -13,9 +14,13 @@ struct TowerDeathWatch {
 struct Result {std::string text;int error{},event_index{},tick{},native_code{},executed{},finished{};
     int first_settlement_tick{-1};
     int observed_hand[4]{},expected_card{},actual_side{-1},expected_slot{-1},available{},raw_elixir{},initial_elixir[2]{};
-    std::vector<Dispatch> dispatch;TowerDeathWatch tower_watch[6]{};unsigned tower_watch_count{};};
+    std::vector<Dispatch> dispatch;TowerDeathWatch tower_watch[6]{};unsigned tower_watch_count{};
+    int checkpoint_tick{-1},checkpoint_elixir[2][4]{};
+    int window_first{-1};std::vector<std::pair<int,int>> window_leaked;};
 struct Calls {uintptr_t base,services;bool(*readable)(uintptr_t,size_t);bool(*stable)(void*);void* context;};
 template<class T> T field(uintptr_t p){T value{};std::memcpy(&value,reinterpret_cast<void*>(p),sizeof(value));return value;}
+inline int elixir_checkpoint{-1};
+inline constexpr int elixir_window_ticks=20;
 struct ReadRanges {
     struct Range {uintptr_t low,high;};std::vector<Range> ranges;
     bool refresh(){
@@ -265,6 +270,21 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
             if(done()){if(allow_terminal)return true;result.error=101;return false;}
             step(reinterpret_cast<void*>(d));
             if(field<int>(d+0x60)!=before+1){result.error=102;return false;}
+            if(elixir_checkpoint>=0&&before+1>=elixir_checkpoint-elixir_window_ticks&&before+1<=elixir_checkpoint+elixir_window_ticks){
+                auto blue=field<uintptr_t>(battle+0xe0),red=field<uintptr_t>(battle+0xe8);
+                if(c.readable(blue,0x418)&&c.readable(red,0x418)){
+                    if(result.window_first<0)result.window_first=before+1;
+                    if(result.window_first+int(result.window_leaked.size())==before+1)
+                        result.window_leaked.emplace_back(field<int>(blue+0x350),field<int>(red+0x350));
+                }
+            }
+            if(result.checkpoint_tick<0&&before+1==elixir_checkpoint){
+                for(unsigned side=0;side<2;++side){
+                    auto root=field<uintptr_t>(battle+0xe0+side*8);if(!c.readable(root,0x418))break;
+                    for(unsigned k=0;k<4;++k)result.checkpoint_elixir[side][k]=field<int>(root+(k?0x344+k*4:0x300));
+                    if(side)result.checkpoint_tick=before+1;
+                }
+            }
             for(const auto& entry:result.dispatch)if(entry.code>0){result.error=114;result.native_code=entry.code;return false;}
             if(before%200==199&&(!c.stable(c.context)||std::chrono::steady_clock::now()-started>std::chrono::seconds(20))){result.error=103;return false;}
         }
@@ -282,7 +302,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
         if(!c.readable(root,0x418)){result.error=105;break;}
         result.available=reinterpret_cast<int(*)(void*,int)>(b+0x120c810)(reinterpret_cast<void*>(root),1);
         result.raw_elixir=field<int>(root+0x300);
-        void* command=nullptr;int slot=-1;unsigned packed=0;
+        void* command=nullptr;int slot=-1;unsigned packed=0;std::string ability_info;
         if(event.kind==153){
             // Source HTML identifies the card, not a private slot. The plain
             // cycle model's slot is only an inference; always resolve the
@@ -329,6 +349,18 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
                 // candidate list, NEVER a stale pointer or guessed source ID.
                 actor=actors[event.ability_choice];
             }else if(event.ability_choice>0){result.error=112;result.native_code=eligible;break;}
+            // Diagnostic only: which hero the ability went to and who else was eligible.
+            auto describe=[&](uintptr_t object){
+                auto definition=field<uintptr_t>(object+0x48);
+                // Ability elixir cost: the native spend (0x120b204) charges ability+0xb4 x 10000.
+                auto ability=c.readable(definition,0x728)?field<uintptr_t>(definition+0x720):0;
+                int cost=ability&&c.readable(ability,0xb8)?field<int>(ability+0xb4):-1;
+                return "{\"id\":"+std::to_string(c.readable(definition,0x48)?field<unsigned>(definition+0x40):0u)+
+                       ",\"x\":"+std::to_string(field<int>(object+0x7c))+",\"y\":"+std::to_string(field<int>(object+0x80))+
+                       ",\"cost\":"+std::to_string(cost)+'}';};
+            ability_info=",\"actor\":"+describe(actor)+",\"eligible\":[";
+            for(size_t k=0;k<actors.size();++k){if(k)ability_info+=',';ability_info+=describe(actors[k]);}
+            ability_info+=']';
             command=malloc(56);if(!command){result.error=109;break;}
             reinterpret_cast<void(*)(void*,void*,void*)>(b+0xf9fcac)(command,reinterpret_cast<void*>(c.services),reinterpret_cast<void*>(actor));
         }else{result.error=113;break;}
@@ -348,7 +380,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
         if(!trace_command(c,result,command,event.kind)){result.error=116;delete_command(c,command);break;}
         if(!first){commands+=',';diagnostics+=',';}first=false;
         commands+="{\"ct\":"+std::to_string(event.kind)+",\"c\":"+text+'}';
-        diagnostics+="{\"index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(event.tick)+",\"owner\":"+std::to_string(event.owner)+",\"card\":"+std::to_string(event.id)+",\"slot\":"+std::to_string(slot)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"packed\":"+std::to_string(packed)+'}';
+        diagnostics+="{\"index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(event.tick)+",\"owner\":"+std::to_string(event.owner)+",\"card\":"+std::to_string(event.id)+",\"slot\":"+std::to_string(slot)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"packed\":"+std::to_string(packed)+ability_info+'}';
         // Queue now owns the native command; normal step executes it. The
         // native append retains the caller's pointer: do not delete it here.
         reinterpret_cast<void(*)(void*,void**)>(b+0xf9ab04)(reinterpret_cast<void*>(field<uintptr_t>(d+0x38)),&command);
@@ -368,6 +400,36 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
     destroyed+=']';
     if(!unwatch_towers(c,result))result.error=120;
     if(battle_state!="null")battle_state.insert(1,"\"destroyed_towers\":"+destroyed+",");
+    // Per-player elixir totals kept by the engine itself (x10000): spent on cards
+    // and abilities (+0x348), gained (+0x34c) and leaked above the cap (+0x350,
+    // the battle log's elixirLeaked). Read at the end or at the paused ambiguity.
+    std::string elixir="[";
+    for(unsigned side=0;side<2;++side){
+        if(side)elixir+=',';
+        auto root=field<uintptr_t>(battle+0xe0+side*8);
+        if(battle_state=="null"||!c.readable(root,0x418)){elixir+="null";continue;}
+        elixir+="{\"current\":"+std::to_string(field<int>(root+0x300))+",\"spent\":"+std::to_string(field<int>(root+0x348))+
+                ",\"gained\":"+std::to_string(field<int>(root+0x34c))+",\"leaked\":"+std::to_string(field<int>(root+0x350))+'}';
+    }
+    elixir+=']';
+    std::string checkpoint="null";
+    if(result.checkpoint_tick>=0){
+        checkpoint="{\"tick\":"+std::to_string(result.checkpoint_tick)+",\"sides\":[";
+        for(unsigned side=0;side<2;++side){
+            const int* v=result.checkpoint_elixir[side];if(side)checkpoint+=',';
+            checkpoint+="{\"current\":"+std::to_string(v[0])+",\"spent\":"+std::to_string(v[1])+",\"gained\":"+std::to_string(v[2])+",\"leaked\":"+std::to_string(v[3])+'}';
+        }
+        checkpoint+="]}";
+    }
+    std::string window="null";
+    if(result.window_first>=0){
+        window="{\"first_tick\":"+std::to_string(result.window_first)+",\"leaked\":[";
+        for(size_t k=0;k<result.window_leaked.size();++k){
+            if(k)window+=',';
+            window+='['+std::to_string(result.window_leaked[k].first)+','+std::to_string(result.window_leaked[k].second)+']';
+        }
+        window+="]}";
+    }
     current_ranges=nullptr;
     commands+=']';diagnostics+=']';
     std::string dispatch="[";unsigned accepted=0;int failed_index=-1;
@@ -378,6 +440,6 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
     }
     dispatch+=']';
     std::string hand="[";for(unsigned i=0;i<4;++i){if(i)hand+=',';hand+=std::to_string(result.observed_hand[i]);}hand+=']';
-    result.text="{\"error\":"+std::to_string(result.error)+",\"event_index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(result.tick)+",\"native_code\":"+std::to_string(result.native_code)+",\"executed\":"+std::to_string(result.executed)+",\"native_accepted\":"+std::to_string(accepted)+",\"failed_index\":"+std::to_string(failed_index)+",\"finished\":"+std::to_string(result.finished)+",\"expected_card\":"+std::to_string(result.expected_card)+",\"owner\":"+std::to_string(result.actual_side)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"initial_elixir\":["+std::to_string(result.initial_elixir[0])+','+std::to_string(result.initial_elixir[1])+"],\"last_hand\":"+hand+",\"battle_state\":"+battle_state+",\"commands\":"+commands+",\"diagnostics\":"+diagnostics+",\"dispatch\":"+dispatch+'}';
+    result.text="{\"error\":"+std::to_string(result.error)+",\"event_index\":"+std::to_string(result.event_index)+",\"tick\":"+std::to_string(result.tick)+",\"native_code\":"+std::to_string(result.native_code)+",\"executed\":"+std::to_string(result.executed)+",\"native_accepted\":"+std::to_string(accepted)+",\"failed_index\":"+std::to_string(failed_index)+",\"finished\":"+std::to_string(result.finished)+",\"expected_card\":"+std::to_string(result.expected_card)+",\"owner\":"+std::to_string(result.actual_side)+",\"available\":"+std::to_string(result.available)+",\"raw_elixir\":"+std::to_string(result.raw_elixir)+",\"initial_elixir\":["+std::to_string(result.initial_elixir[0])+','+std::to_string(result.initial_elixir[1])+"],\"last_hand\":"+hand+",\"elixir\":"+elixir+",\"elixir_at_page_end\":"+checkpoint+",\"elixir_window\":"+window+",\"battle_state\":"+battle_state+",\"commands\":"+commands+",\"diagnostics\":"+diagnostics+",\"dispatch\":"+dispatch+'}';
 }
 }

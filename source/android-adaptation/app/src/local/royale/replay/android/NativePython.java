@@ -177,6 +177,10 @@ public final class NativePython {
         return startPlayback(context,source,speed,diagnostic,false);
     }
     public static JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic,boolean prepareAhead)throws Exception {
+        return startPlayback(context,source,speed,diagnostic,prepareAhead,null);
+    }
+    static JSONObject startPlayback(Context context,byte[] source,double speed,String diagnostic,boolean prepareAhead,JSONObject skillTest)throws Exception {
+        if(ReplayReset.blocked(context))throw new IOException("正在重置回放进程；完成后再播放");
         if(speed!=.25&&speed!=.5&&speed!=1&&speed!=2&&speed!=4)throw new IOException("无效倍速");
         File active=new File(context.getFilesDir(),"phone-active.json");
         if(active.isFile()&&!PlaybackStatus.launchFailureReleased(context)){
@@ -210,6 +214,11 @@ public final class NativePython {
         File directory=new File(manifest.getParentFile(),"phone-playback");
         File request=new File(manifest.getParentFile(),"play-request.json");
         JSONObject requested=new JSONObject().put("source_manifest",manifest.getAbsolutePath()).put("source_sha256",MainActivity.sha(source)).put("apk",apk).put("speed",speed).put("prepare_ahead",prepareAhead);
+        if(skillTest!=null){
+            String schema=skillTest.optString("schema","");
+            if((!"royale-replay.skill-target-test.v1".equals(schema)&&!"royale-replay.free-skill-checkpoint.v1".equals(schema)&&!"royale-replay.adaptive-search-test.v1".equals(schema)&&!"royale-replay.seed-locked-playback.v1".equals(schema))||!MainActivity.sha(source).equals(skillTest.optString("source_sha256","")))throw new IOException("技能预演或固定种子播放来源不一致");
+            requested.put("royale-replay.seed-locked-playback.v1".equals(schema)?"seed_locked_playback":"skill_target_test",new JSONObject(skillTest.toString()));
+        }
         if(!diagnostic.isEmpty()){
             File evidence=new File(diagnostic);File queue=new File(context.getFilesDir(),"replay-queue");
             if(!evidence.getCanonicalFile().getParentFile().equals(queue.getCanonicalFile())||!evidence.getName().matches("[a-f0-9-]{36}\\.diagnostic\\.json"))throw new IOException("诊断文件必须来自本机队列");
@@ -247,6 +256,15 @@ public final class NativePython {
         }
         if(!status.isFile())throw new IOException("本机执行器尚未确认启动；保留请求，不自动重试");
         return job;
+    }
+    static JSONObject resetProcesses(Context context,File request,File output)throws Exception{
+        File home=ensure(context),prefix=tools(context);
+        String command="LD_LIBRARY_PATH="+quoted(runtimeLibraries(context,home,prefix))+" "+quoted(runtimeExecutable(context,home).getAbsolutePath())
+            +" reset "+quoted(home.getAbsolutePath())+" "+quoted(request.getAbsolutePath())+" "+quoted(output.getAbsolutePath())+" "+quoted(prefix.getAbsolutePath());
+        StandaloneDoctor.Output result=StandaloneDoctor.root(command,120);
+        MainActivity.write(new File(request.getParentFile(),"process-output.txt"),result.text.getBytes(StandardCharsets.UTF_8));
+        if(result.code!=0)throw new IOException("未能重置全部占用："+result.text.substring(Math.max(0,result.text.length()-500))+"；没有重发回放任务，请查看诊断记录");
+        return new JSONObject(MainActivity.text(new File(output,"result.json"),32768));
     }
     static JSONObject currentGameGeneration()throws Exception{
         StandaloneDoctor.Output pid=StandaloneDoctor.root("pidof "+StandaloneDoctor.GAME);

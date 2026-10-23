@@ -7,6 +7,21 @@ import struct
 from client_session import ReadOnlySession
 
 
+# Tencent 38.4.2, libg SHA256 c6b2482a... (full hash enforced by the session).
+# Spirit Empress is a concrete derived card definition, not an ordinary card
+# with its type check disabled. Its inherited +0x100 getter is still exactly
+# ldr x0,[x0,#0xa0]; ret, and points to the SAME validated level-source type.
+STANDARD_DEFINITION_TABLE = 0x1c0be40
+SPIRIT_EMPRESS_ID = 28000025
+SPIRIT_EMPRESS_TABLE = 0x1bf4420
+LEVEL_SOURCE_TABLE = 0x1c0a098
+LEVEL_GETTER = 0x10cc890
+
+
+def definition_table(data_id):
+    return SPIRIT_EMPRESS_TABLE if data_id == SPIRIT_EMPRESS_ID else STANDARD_DEFINITION_TABLE
+
+
 def main():
     p=argparse.ArgumentParser()
     for name in ('observation','source','output'):p.add_argument('--'+name,type=Path,required=True)
@@ -40,24 +55,36 @@ def main():
         if data_id in seen:raise ValueError('ambiguous card definition')
         seen.add(data_id);selected.append((definition,data_id))
     if seen!=needed:raise ValueError('source cards absent from native catalog')
-    slots=[(s.base+0x1c0be40+0x100,0x10cc890),
-           (s.base+0x1c0a098+0x118,0x10b1030),(s.base+0x1c0a098+0x120,0x10b1038)]
+    tables={definition_table(data_id) for _,data_id in selected}
+    slots=[(s.base+table+0x100,LEVEL_GETTER) for table in sorted(tables)]
+    slots.extend(((s.base+LEVEL_SOURCE_TABLE+0x118,0x10b1030),
+                  (s.base+LEVEL_SOURCE_TABLE+0x120,0x10b1038)))
     for raw,(_,va) in zip(batch([(address,8) for address,_ in slots]),slots):
         if struct.unpack('<Q',raw)[0]&0x00ffffffffffffff!=s.base+va:raise ValueError('card level callback changed')
+    if SPIRIT_EMPRESS_ID in needed:
+        # Pin the inherited getter and both field getters as well as the slots.
+        # These are byte observations, never calls into the client.
+        getter_bytes=((LEVEL_GETTER,bytes.fromhex('005040f9c0035fd6')),
+                      (0x10b1030,bytes.fromhex('003042b9c0035fd6')),
+                      (0x10b1038,bytes.fromhex('003442b9c0035fd6')))
+        for raw,(_,expected) in zip(batch([(s.base+va,len(expected)) for va,expected in getter_bytes]),getter_bytes):
+            if raw!=expected:raise ValueError('Spirit Empress level getter code changed')
     headers=batch([(address,size) for definition,_ in selected for address,size in ((definition,8),(definition+0xa0,8))])
     levels=[]
     for index,(_,data_id) in enumerate(selected):
         table,level_source=(struct.unpack('<Q',raw)[0]&0x00ffffffffffffff for raw in headers[index*2:index*2+2])
-        if table!=s.base+0x1c0be40:raise ValueError('card definition type changed')
+        if table!=s.base+definition_table(data_id):raise ValueError('card definition type changed: '+str(data_id))
         levels.append((data_id,level_source))
     values=batch([(address,size) for _,level in levels for address,size in ((level,8),(level+0x230,8))])
     found={}
     for index,(data_id,_) in enumerate(levels):
         table=struct.unpack('<Q',values[index*2])[0]&0x00ffffffffffffff
-        if table!=s.base+0x1c0a098:raise ValueError('level source type changed')
+        if table!=s.base+LEVEL_SOURCE_TABLE:raise ValueError('level source type changed: '+str(data_id))
         offset,ceiling=struct.unpack('<ii',values[index*2+1])
         if not 0<=offset<=15:raise ValueError('level offset outside supported range')
-        found[data_id]=dict(data_id=data_id,display_offset=offset+1,offset_A=offset,ceiling_B=ceiling)
+        found[data_id]=dict(data_id=data_id,display_offset=offset+1,offset_A=offset,ceiling_B=ceiling,
+                            definition_type='spirit-empress' if data_id==SPIRIT_EMPRESS_ID else 'standard',
+                            definition_table_va=hex(definition_table(data_id)))
     if set(found)!=needed:raise ValueError('source cards absent from native catalog')
     for (_,raw),again in zip(retained,s.read_many([(address,len(raw)) for address,raw in retained])):
         if again!=raw:raise ValueError('public catalog generation changed')

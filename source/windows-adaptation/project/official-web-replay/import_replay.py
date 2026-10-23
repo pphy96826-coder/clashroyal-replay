@@ -24,6 +24,24 @@ def normalize_saved_links(html):
     """Browser Save Page rewrites same-site links; never fetch remote content."""
     return re.sub(r'(?i)(\bhref\s*=\s*[\"\'])https://royaleapi\.com(?=/card/)',r'\1',html)
 
+def elixir_leaked_from_html(html):
+    """Each player's elixir leaked from the battle header (the battle log's
+    elixirLeaked), in the same order as the hp-popup tower health the parser maps
+    to team, opponent. None unless both players have exactly one value."""
+    values=[];start=0
+    for popup in re.finditer(r'class="hp-popup"',html):
+        found=re.findall(r'Elixir Leaked\s*</span>\s*(\d+(?:\.\d+)?)\s*<',html[start:popup.start()])
+        values.append(float(found[0]) if len(found)==1 else None);start=popup.end()
+    return dict(team=values[0],opponent=values[1]) if len(values)==2 and None not in values else None
+
+
+def attach_elixir_leaked(document, html):
+    """Record the page's elixir leaked per source deck (None when absent)."""
+    leaked=elixir_leaked_from_html(html) or {}
+    for deck in document['decks']:deck['oracle_elixir_leaked']=leaked.get(deck['source_side'])
+    return document
+
+
 def card_ids_from_html(html, resolver=None):
     """Resolve names against each source deck's copyDeck ID SET, never order.
 
@@ -150,6 +168,7 @@ def main():
     source=args.project_root/'native_runner/tools/royaleapi_hog_il.py'
     doc=convert(payload,source_path=args.html.resolve(),source_bytes=raw,parser_digest=hashlib.sha256(source.read_bytes()).hexdigest(),
                 card_ids=card_ids_from_html(html, resolve))
+    attach_elixir_leaked(doc, html)
     doc['import_adapter_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     doc['saved_link_normalization']='royaleapi-https-card-href-only-v1'
     args.output.parent.mkdir(parents=True,exist_ok=True)

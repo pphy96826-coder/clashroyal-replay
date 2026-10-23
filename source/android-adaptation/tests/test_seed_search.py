@@ -9,7 +9,7 @@ SOURCE=(ROOT/'device/device_playback.py').read_text()
 
 def load(name):
     tree=ast.parse(SOURCE)
-    nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in (name,'seed_plan'))
+    nodes=[n for n in tree.body if (isinstance(n,ast.FunctionDef) and n.name in (name,'seed_plan','page_tower_comparison'))
            or (isinstance(n,ast.Assign) and any(getattr(t,'id','')=='SEED_ATTEMPTS' for t in n.targets))]
     nodes+=[n for n in tree.body if isinstance(n,ast.Assign) and any(getattr(t,'id','')=='PAGE_MATCH_TIERS' for t in n.targets)]
     scope=dict(hashlib=hashlib)
@@ -29,23 +29,13 @@ class SeedSearchTests(unittest.TestCase):
         self.assertNotIn(first[0],plan('a'*64,first[0]))
 
     def test_page_is_always_compared_and_closest_run_is_kept(self):
-        block=SOURCE[SOURCE.index('# Always compare the simulated end with the page'):SOURCE.index("receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']")]
-        self.assertIn('tier,difference=page_comparison(read(source),aligned,execution)',block)
-        self.assertIn("if tier!='exact' and reasons:",block)
-        self.assertIn('reasons=search_reasons(aligned,read(source))',block)
-        # Each seed gets its own deal calibration before any source command runs.
-        self.assertLess(block.index("trial['initialization_only']['rndSeed']=seed"),block.index('trial=calibrate(trial,deal,trial_seen)'))
-        self.assertLess(block.index('trial=calibrate(trial,deal,trial_seen)'),block.index('fixed_choice_trial(trial,fixed_skills,execute_candidate'))
-        # The initial run may use a hint, but it still must fully execute. Its
-        # actual seed is retained with its result, while retries include original.
-        self.assertIn("best=(rank(tier,difference),initial_seed",block)
-        self.assertIn('original_seed=source_seed',block)
-        self.assertIn('best,attempts,stopped=choose_trials(',block)
-        self.assertIn("selected_candidate.clear();selected_candidate.update(chosen)",block)
-        self.assertIn("raise Cancelled('cancelled during seed search')",block)
-        tail=SOURCE[SOURCE.index("receipt=selected_candidate['receipt'];prep=selected_candidate['preparation']"):]
-        self.assertIn("context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=difference",tail)
-        self.assertIn("name=(attempt_prefix+'candidate-'+str(number)) if attempt_prefix else",SOURCE)
+        # Production now runs the reference55-65 selection path. Its behavior is
+        # exercised by hotfix65 tests; retain wiring checks for both seed phases.
+        self.assertIn("if seed_policy['search_needed']:",SOURCE)
+        self.assertIn('max_attempts=SCREEN_RUNS if complete_fixed else SCREEN_RUNS_UNFIXED',SOURCE)
+        self.assertIn('max_attempts=REFINE_RUNS',SOURCE)
+        self.assertIn('elixir_refusal=elixir_gate(read(source),aligned,execution)',SOURCE)
+        self.assertIn("selected_candidate.clear();selected_candidate.update(chosen)",SOURCE)
 
     def test_hint_retry_retains_original_without_duplicates_and_stays_bounded(self):
         plan=load('retry_seed_plan');original=1784463263

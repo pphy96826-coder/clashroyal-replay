@@ -103,7 +103,7 @@ def run(preparation, destination, prefix, *, run_source=False, native_replay=Non
         if identity.get('native_transport')=='mumu-nativebridge-v1':
             from mumu_compile import adapt
             original=root/('native_'+kind+'_probe.cpp')
-            adapted,extra,evidence=adapt(session,build,original)
+            adapted,extra,evidence=adapt(session,build,original,doc)
             at=command.index(str(original));command[at:at+1]=[*extra,str(adapted)]
             with (destination/'mumu-build-contract.json').open('x') as stream:json.dump(evidence,stream,indent=2)
         with (destination/'compile.log').open('x') as log:

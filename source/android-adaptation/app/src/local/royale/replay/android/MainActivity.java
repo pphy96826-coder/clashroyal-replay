@@ -59,6 +59,9 @@ public final class MainActivity extends Activity {
         exitReplay=button(root,"退出回放",new View.OnClickListener(){public void onClick(View v){finishReplay(false);}});
         removeReplay=button(root,"移除已保存回放",new View.OnClickListener(){public void onClick(View v){confirmRemove();}});
         floating=button(root,"开启游戏内悬浮控制台",new View.OnClickListener(){public void onClick(View v){toggleFloating();}});
+        button(root,"重置所有回放进程",new View.OnClickListener(){public void onClick(View v){
+            if(finishing)return;finishing=true;uiNote="正在重置回放进程，请稍候…";
+            new Thread(new Runnable(){public void run(){try{uiNote=ReplayReset.reset(MainActivity.this);}catch(Exception e){uiNote=e.getMessage();}finally{finishing=false;}}}).start();}});
         exportDiagnostic=button(root,"导出诊断",new View.OnClickListener(){public void onClick(View v){pickDiagnosticDestination();}});
         label(root,"本机独立播放 · 无需电脑\n校验后用悬浮进度卡陪同加载，确认开播后收起。网页仅内置浏览器直连，不改电脑或系统网络。",13,0xff9aaec8);
         try{JSONObject meta=new JSONObject(text(new File(getFilesDir(),"source.json"),8192));sourceLabel.setText("上次导入："+meta.optString("tag","")+" · "+meta.optLong("events",0)+" 条指令");}catch(Exception ignored){}

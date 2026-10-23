@@ -4,9 +4,13 @@ from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 SHARED=ROOT.parent/'windows-adaptation/project/official-web-replay'
+sys.path.insert(0,str(SHARED))
 spec=importlib.util.spec_from_file_location('real_tower_profiles',SHARED/'tower_profiles.py');towers=importlib.util.module_from_spec(spec);spec.loader.exec_module(towers)
 def function(path,name):
- tree=ast.parse(path.read_text());nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name];scope={}
+
+ if path.name=='ability_search.py':
+  spec=importlib.util.spec_from_file_location('orientation_ability_search',path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return getattr(module,name)
+ tree=ast.parse(path.read_text());nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in (name,'page_tower_comparison')];scope={}
  exec(compile(ast.Module(body=nodes,type_ignores=[]),str(path),'exec'),scope);return scope[name]
 compare=function(ROOT/'device/device_playback.py','page_comparison')
 matches=function(SHARED/'ability_search.py','terminal_hp_matches')

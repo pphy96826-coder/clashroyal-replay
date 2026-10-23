@@ -160,11 +160,14 @@ def component_code_ranges(session,component):
     raw=Path(path).read_bytes()
     if hashlib.sha256(raw).hexdigest()!=component['sha256']:raise ValueError('MuMu component hash differs')
     elf=Elf(raw);base=load_bias(session.verify().splitlines(),path,elf)
-    if session.read(base,64)!=raw[:64]:raise ValueError('MuMu component header differs')
     exports=elf.exports(set(component['exports']))
     if exports!=component['exports']:raise ValueError('MuMu component export contract differs')
-    for pin in exports.values():
-        if hashlib.sha256(session.read(base+int(pin['va'],0),pin['size'])).hexdigest()!=pin['sha256']:
+    # One bounded read transaction, same header/export bytes and per-range limits.
+    # read_many verifies process/mapping identity before AND after the whole batch.
+    loaded=session.read_many([(base,64)]+[(base+int(pin['va'],0),pin['size']) for pin in exports.values()])
+    if loaded[0]!=raw[:64]:raise ValueError('MuMu component header differs')
+    for pin,actual in zip(exports.values(),loaded[1:]):
+        if hashlib.sha256(actual).hexdigest()!=pin['sha256']:
             raise ValueError('MuMu loaded component export differs')
     ranges=[(base+p[3],base+p[3]+p[5]) for p in elf.programs if p[0]==1 and p[1]&1 and p[5]]
     if not ranges:raise ValueError('MuMu component has no code segments')

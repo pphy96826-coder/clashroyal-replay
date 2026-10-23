@@ -26,7 +26,7 @@ class PrivateReceiptTests(unittest.TestCase):
   run=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='run')
   status=next(n for n in run.body if isinstance(n,ast.FunctionDef) and n.name=='status')
   outer=ast.FunctionDef(name='make_status',args=ast.arguments(posonlyargs=[],args=[ast.arg(arg=n) for n in ('destination','owner','context')],kwonlyargs=[],kw_defaults=[],defaults=[]),
-   body=ast.parse('started=0\nphase_started=0\nphase_name=None\nphase_totals={}').body+[status,ast.Return(value=ast.Name(id='status',ctx=ast.Load()))],decorator_list=[])
+   body=ast.parse('started=0\nphase_started=0\nphase_name=None\nphase_totals={}\nprogress_observer=None').body+[status,ast.Return(value=ast.Name(id='status',ctx=ast.Load()))],decorator_list=[])
   scope2={'publish_private_receipts':publish,'time':types.SimpleNamespace(monotonic=lambda:1,time=lambda:2),'json':json,'os':os}
   module=ast.fix_missing_locations(ast.Module(body=[outer],type_ignores=[]));exec(compile(module,str(SOURCE),'exec'),scope2)
   with tempfile.TemporaryDirectory() as raw:

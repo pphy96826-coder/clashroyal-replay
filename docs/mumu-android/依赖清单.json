@@ -1,7 +1,7 @@
 {
   "schema": "mumu-replay.runtime-dependencies.v1",
-  "apk_sha256": "34c48a78c3ea6c04cfad6be559c81f6052fbb0f01fe00bd45ba876513a2973ff",
-  "apk_version": "2026.10.21-mumu-dev32",
+  "apk_sha256": "790cda544e25046f89a47cb827fd9595f3a3e0abb5973b0fe94b5f89b326033d",
+  "apk_version": "2026.10.21-mumu-dev54",
   "members": {
     "assets/synthetic.html": {
       "bytes": 517,
@@ -16,20 +16,20 @@
       "sha256": "976c4f8bbba18f7a2c0a683e28d8d52939afba96cf2a23c9e704818eb97cbadf"
     },
     "assets/python-runtime.zip": {
-      "bytes": 106530607,
-      "sha256": "62e5fd2a048ec9fd5c3f235d0cf1057dbb3ca5db23041e6e50690fccb6376db0"
+      "bytes": 106606132,
+      "sha256": "ba4069b84c4c49a446e789f04005fac6880f93ef8b6a1ffe597cd8fb2fe56a23"
     },
     "assets/python-runtime.sha256": {
       "bytes": 64,
-      "sha256": "ea2560ae4efbfae8e215858539b8438f2f31bbcd41edeb83572a13052d7c51e0"
+      "sha256": "022d4a3b4fd33ee5da8216954ee231eda9a92cb659bade9e4709dec89c388cfb"
     },
     "lib/arm64-v8a/libcrypto_python.so": {
       "bytes": 4544368,
       "sha256": "e13734377377603cda9c2ea6d6171fc4d639d8a0768050a8a22cdaa3b40f0ece"
     },
     "lib/arm64-v8a/libphone_runtime.so": {
-      "bytes": 535488,
-      "sha256": "8640257ff4aca18c302f081e1f95276b8c45a61f162609a7fb12f39ee0b6b211"
+      "bytes": 535872,
+      "sha256": "f6cac5a33c4cbbe49d7d7f90677a1e297980106cdc2349936bc6cccd19eb38a8"
     },
     "lib/arm64-v8a/libpython3.14.so": {
       "bytes": 5835936,
@@ -53,11 +53,11 @@
     "native_android_lldb": "21.1.8",
     "native_android_clang": "21.1.8"
   },
-  "install": "All members are already embedded in the APK. This is a backup, not a manual installation script.",
+  "install": "All members are embedded in the APK. Backup only; no manual installation is needed.",
   "sources": [
     "https://packages.termux.dev/apt/termux-main/",
     "https://www.python.org/",
     "https://llvm.org/"
   ],
-  "licenses": "Original licenses and package provenance are preserved inside assets/python-runtime.zip and assets/android-tools.zip."
+  "licenses": "Original package provenance and licenses are preserved in assets/python-runtime.zip and assets/android-tools.zip."
 }

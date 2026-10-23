@@ -1,0 +1,12 @@
+{
+  "package": "local.royale.replay.mumu",
+  "version": "2026.10.21-mumu-dev54",
+  "version_code": 2026102154,
+  "sha256": "790cda544e25046f89a47cb827fd9595f3a3e0abb5973b0fe94b5f89b326033d",
+  "bytes": 244597963,
+  "signature_verified": true,
+  "official_sdk_api": 32,
+  "python_bundle_sha256": "ba4069b84c4c49a446e789f04005fac6880f93ef8b6a1ffe597cd8fb2fe56a23",
+  "device_e2e_verified": false,
+  "original_app_preserved": true
+}

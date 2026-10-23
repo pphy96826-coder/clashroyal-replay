@@ -37,7 +37,7 @@ AUDITED_SHA = 'c6b2482a2f1fbd2e15c99df7fb18ba3d5596b77b3a81930d3638241a3c37fe55'
 MASK = 0x00ffffffffffffff
 RECIPE_FILES = ('import_replay.py', 'prepare_native_replay.py', 'align_native_deal.py',
                 'bootstrap_input.py', 'source_execution.h', 'native_bootstrap_probe.cpp',
-                'finalize_replay.py', 'cache_lease.h','tower_profiles.py','native_tower_check.h','observe_tower_catalog.py',
+                'replay_matching.py','ability_search.py','import_replay.py','finalize_replay.py', 'cache_lease.h','tower_profiles.py','native_tower_check.h','observe_tower_catalog.py',
                 'portable_config.py','platform_lock.py','native_expression.py','mapped_elf.py','binary_read_transport.py','mumu_bridge_guest.cpp','mumu_bridge_host.cpp',
                 'mumu_compile.py','mumu_lifecycle.py')
 
@@ -585,11 +585,21 @@ class Player:
                 shifted = self.folder / 'preparation-timing.json'
                 self.command('timing_policy.py', '--preparation', prep0, '--offset-ticks', timing_ticks, '--output', shifted)
                 prep0 = shifted
-            seen=[]
+            delayed=read_json(prep0);seen=[];deal_seeds=None
             for calibration in range(12):
                 observed_prep=read_json(prep0);seen.append(deck_fingerprint(observed_prep))
                 _, deal = self.probe(prep0, observation)
-                aligned=calibrate(observed_prep,read_json(deal),seen)
+                try:aligned=calibrate(observed_prep,read_json(deal),seen)
+                except ValueError as error:
+                    from align_native_deal import DEAL_SEED_INFEASIBLE
+                    from replay_matching import seed_plan,replay_key
+                    if DEAL_SEED_INFEASIBLE not in str(error):raise
+                    if deal_seeds is None:deal_seeds=iter(seed_plan(replay_key(doc),observed_prep['initialization_only']['rndSeed']))
+                    seed=next(deal_seeds);observed_prep['initialization_only']['rndSeed']=seed
+                    delayed['initialization_only']['rndSeed']=seed;seen.clear()
+                    prep0=self.folder/('preparation-deal-seed-'+str(calibration)+'.json');write_new(prep0,observed_prep)
+                    self.stage('当前种子无法排出采集器／镜像的位置，改用下一种子核验。')
+                    continue
                 prep=self.folder/('preparation-calibrated-'+str(calibration)+'.json')
                 write_new(prep,aligned)
                 if aligned['native_deal_ready']:break
@@ -597,29 +607,20 @@ class Player:
                 prep0=prep
             else:raise RuntimeError('原生牌序未能在有界校准内匹配；初始化现场已安全释放，未执行回放指令。')
             self.stage('4/5 原生引擎完整预演，逐条核对全部指令，再校验导入。')
-            from ability_search import search,terminal_hp_matches
-            selected_evidence={}
-            def execute_candidate(candidate,number):
-                candidate_path=self.folder/('ability-candidate-'+str(number)+'.json')
-                write_new(candidate_path,candidate)
+            from replay_matching import match
+            def execute_candidate(candidate_path,name):
                 candidate_attempt,candidate_receipt=self.probe(candidate_path,observation,execute=True,candidate=True)
-                evidence=dict(preparation=str(candidate_path),attempt=candidate_attempt,receipt=str(candidate_receipt))
-                selected_evidence.update(evidence)
-                return read_json(ROOT/(candidate_attempt+'-source-execution.json')),evidence
-            try:
-                from portable_config import translated
-                chosen,report,search_result=search(read_json(prep),execute_candidate,
-                    lambda candidate,result:terminal_hp_matches(doc,candidate,result),cancelled=self.cancel.is_set,
-                    max_attempts=16 if translated() else 256)
-            except Exception as error:
-                if hasattr(error,'search_report'):write_new(self.folder/'ability-search.json',error.search_report)
-                raise
-            write_new(self.folder/'ability-search.json',search_result)
-            if search_result['ambiguous']:
-                self.stage('技能候选已找到终局塔血匹配；这是推断匹配，不是原始技能目标或过程唯一性证明。')
-            prep=Path(selected_evidence['preparation'])
-            attempt=selected_evidence['attempt'];receipt=Path(selected_evidence['receipt'])
-            execution = ROOT / (attempt + '-source-execution.json'); native = self.folder / 'complete-native.json'
+                return read_json(ROOT/(candidate_attempt+'-source-execution.json')),candidate_receipt
+            def deal_candidate(candidate_path,name):
+                _,receipt_path=self.probe(candidate_path,observation)
+                return read_json(receipt_path)
+            chosen,report,search_result,selected_evidence,match_context=match(source,read_json(prep),delayed,self.folder,
+                execute_candidate,deal_candidate,cancelled=self.cancel.is_set,status=lambda state,message,**details:self.stage(message))
+            self.stage('完整候选核验结果：'+match_context.get('page_match_detail','')+match_context.get('version_check_hint',''))
+            prep=Path(selected_evidence['preparation']);receipt=Path(selected_evidence['receipt'])
+            # Preserve the chosen report independent of whichever seed ran last.
+            execution=self.folder/'selected-source-execution.json';write_new(execution,report)
+            native=self.folder/'complete-native.json'
             self.command('finalize_replay.py', '--preparation', prep, '--report', execution, '--receipt', receipt, '--output', native)
             check_attempt, check_receipt = self.probe(prep, observation, execute=True, native=native)
             register_cache(prep, native, execution, receipt, ROOT / (check_attempt + '-source-execution.json'), check_receipt, recipe=recipe)

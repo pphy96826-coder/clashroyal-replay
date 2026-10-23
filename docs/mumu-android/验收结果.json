@@ -1,152 +1,79 @@
 {
-  "delivery_version": "2026.10.21-mumu-dev32",
-  "apk_sha256": "34c48a78c3ea6c04cfad6be559c81f6052fbb0f01fe00bd45ba876513a2973ff",
-  "full_native_playback": {
-    "verified": true,
-    "build": "dev31",
-    "source_events": 85,
-    "source_abilities_preserved": 16,
-    "hunter_plays_preserved": 3,
-    "full_playback_completed": true,
-    "actual_playing_observed": true,
-    "source_execution_verified": true,
-    "native_roundtrip_verified": true,
-    "skill_first": true,
-    "skill_attempts": 37,
-    "skill_hp_difference": 1492,
-    "skill_branches_exhausted": true,
-    "skill_budget_exhausted": false,
-    "seed_attempts": 2,
-    "seed_search_stopped_by_user": true,
-    "client_reopened": true,
-    "console_return_receipt_verified": true,
-    "lobby_returned_in_runtime_wait": true,
-    "private_receipts_published": true,
-    "page_match": "same_towers",
-    "page_hp_difference": 1492,
-    "native_terminal_tick": 5333,
-    "actual_console_resume_event_verified": true
+  "version": "2026.10.21-mumu-dev54",
+  "version_code": 2026102154,
+  "apk_sha256": "790cda544e25046f89a47cb827fd9595f3a3e0abb5973b0fe94b5f89b326033d",
+  "apk_bytes": 244597963,
+  "signatures_verified": true,
+  "upstream_reference": "c74c51ffc254c1c3570d119ac83e6226fdf3f909",
+  "current_build": {
+    "host_tests": 344,
+    "device_console_checks": 72,
+    "html_import_actions": 100,
+    "dropped_actions": 0,
+    "runtime_source_members_byte_compared": 47,
+    "parser_only": true,
+    "root_and_overlay_preserved": true,
+    "native_full_simulation_retested": false,
+    "visible_full_playback_retested": false,
+    "wall_clock_speedup_measured": false
   },
-  "python_host_checks": {
-    "tests": 82,
-    "failures": 0,
-    "errors": 0,
-    "successful": true
-  },
-  "delivery_pipeline_equivalence": {
-    "equivalent_executable_pipeline": true,
-    "tested_build": "dev31",
-    "delivery_build": "dev32",
-    "apk_changed_members": [
-      "AndroidManifest.xml",
-      "assets/python-runtime.zip",
-      "assets/python-runtime.sha256",
-      "META-INF/MUMU-REP.SF",
-      "META-INF/MUMU-REP.RSA",
-      "META-INF/MANIFEST.MF"
-    ],
-    "runtime_changed_members": [
-      "app/device_playback.py",
-      "runtime-files.json"
-    ],
-    "normalized_control_flow_identical": true,
-    "sole_nonmetadata_difference": "One progress-message argument now reads the skill phase and current best HP difference; engine, ranking, selection, timing, safety and playback code are unchanged.",
-    "skill_and_seed_message_checks": 2,
-    "delivery_apk_sha256": "34c48a78c3ea6c04cfad6be559c81f6052fbb0f01fe00bd45ba876513a2973ff"
-  },
-  "delivery_installation": {
-    "version_code": 2026102132,
-    "apk_sha256": "34c48a78c3ea6c04cfad6be559c81f6052fbb0f01fe00bd45ba876513a2973ff",
-    "console_checks": 60,
-    "parser_retained_events": 85,
-    "parser_dropped_actions": 0,
-    "new_runtime_prepared_and_verified": true,
-    "root_permission_preserved": true,
-    "overlay_permission_preserved": true,
-    "original_app_data_preserved": true
-  },
-  "complete_skill_candidates": [
-    {
-      "choices": {
-        "18": 0,
-        "24": 1,
-        "35": 0,
-        "44": 0,
-        "59": 0,
-        "76": 1
-      },
-      "hp_difference": 1492
-    },
-    {
-      "choices": {
-        "18": 1,
-        "35": 0,
-        "44": 1,
-        "59": 0,
-        "76": 0
-      },
-      "hp_difference": 8446
-    },
-    {
-      "choices": {
-        "18": 1,
-        "35": 0,
-        "44": 1,
-        "59": 0,
-        "76": 1
-      },
-      "hp_difference": 8949
-    }
-  ],
-  "phase_seconds": {
-    "preparing": 7.380266905995086,
-    "calibrating": 40.842156743994565,
-    "simulating": 1125.6887877170084,
-    "validating": 31.14860441799101,
-    "ready_to_open": 2.5595616360078566,
-    "waiting_lobby": 2.603935184000875,
-    "loading": 22.27374240399513,
-    "waiting_foreground": 7.636113818996819,
-    "starting": 0.44189591699978337,
-    "playing": 267.3141097140033,
-    "returning_lobby": 30.454803194996202,
-    "complete": 0.0
-  },
-  "java_runtime_publication_checks": 10,
-  "console_device_checks": 60,
-  "historical_dev28_interrupted_runtime_recovery": {
-    "interrupted_runtime_preserved": true,
-    "new_complete_runtime_published": true,
-    "manifest_members": 896
-  },
-  "source_preservation": {
-    "events": 85,
+  "historical_device_acceptance": {
+    "build": "dev48",
+    "replay": "02JYPPC02YUL",
+    "commands": 85,
     "abilities": 16,
     "hunter_plays": 3,
-    "dropped_events": 0,
-    "retimed_events": 0
-  },
-  "search_policy": {
-    "order": [
-      "fixed_seed_skill_combinations",
-      "fixed_skill_random_seeds"
+    "full_native_simulation": true,
+    "full_playback": true,
+    "seed": 48177057,
+    "six_tower_absolute_hp_difference": 491,
+    "terminal_time_delta_seconds": 15.85,
+    "page_elixir_leaked": [
+      14.37,
+      11.66
     ],
-    "metric": "sum_of_six_per_tower_absolute_hp_differences",
-    "only_complete_native_candidates": true,
-    "tie_break": "first_complete",
-    "exact_zero_can_stop": true,
-    "global_optimum_proven": false
+    "sim_elixir_leaked": [
+      14.3718,
+      11.6627
+    ],
+    "strict_elixir_window_pass": true,
+    "red_skill_costs": [
+      2,
+      5,
+      2,
+      5,
+      5,
+      5,
+      2
+    ],
+    "destroyed_towers_match": true,
+    "note": "Historical result only. Not an end-to-end validation of dev54."
   },
-  "limits": {
-    "ownership_receipts_max": 256,
-    "receipts_reserved_for_playback": 4,
-    "partial_candidate_playback_allowed": false,
-    "native_safety_guards_bypassed": false
+  "skipped_by_user": [
+    "092PYR8PUC9R"
+  ],
+  "offline_captured_output_regression": {
+    "initial_pool": 16,
+    "first_screen_new_calls": 2,
+    "next_round_new_calls": [
+      1,
+      1
+    ],
+    "is_new_device_simulation": false
+  },
+  "safety": {
+    "game_apk_unchanged": true,
+    "game_signature_unchanged": true,
+    "library_sha_and_architecture_guards_preserved": true,
+    "network_settings_unchanged": true,
+    "automatic_resubmission_of_submitted_native_tasks": false,
+    "receipt_limit": 256,
+    "playback_reserved_receipts": 4
   },
   "limitations": [
-    "Budgeted search retains the best fully verified result among attempted combinations; it is not proof of a globally optimal or unique original process.",
-    "A compacted one-survivor source HP array cannot identify the original destroyed side.",
-    "Runtime extraction recovery was separately tested on dev28. The new skill-first full replay was tested on dev31; delivered dev32 changes only one progress-message argument plus version/signature metadata, verified by APK member and normalized AST comparison.",
-    "Client reopening and source-bound console return are verified separately from reaching the lobby within the runtime wait window."
+    "dev54 whole-match playback and wall-clock performance have not been remeasured.",
+    "The extra 0.05 elixir margin is user-authorized approximate matching; exact matching still uses the strict truncation interval.",
+    "Local host tests include one private completed-output fixture; that optional test skips when the fixture is absent.",
+    "No claim of exhaustive skill coverage, global optimum, or unique original replay reconstruction."
   ]
 }

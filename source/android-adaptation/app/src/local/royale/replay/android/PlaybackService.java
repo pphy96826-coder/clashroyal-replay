@@ -23,6 +23,11 @@ public final class PlaybackService extends Service {
     private ReplayOverlay overlay;
     private boolean coverShown;
     static boolean isBusy(){return busy;}
+    static void finishReset()throws Exception{
+        PlaybackService service=active;if(service!=null)service.running=false;
+        long deadline=System.currentTimeMillis()+10000;
+        while(busy&&System.currentTimeMillis()<deadline)Thread.sleep(100);
+    }
     static boolean returnsToConsole(JSONObject state,boolean terminalVerified){
         String phase=state.optString("state","");
         return !state.optBoolean("monitor_active",true)
@@ -65,6 +70,9 @@ public final class PlaybackService extends Service {
         begin(context,source,speed,replayRequested,diagnostic,"");
     }
     static synchronized void begin(Context context,byte[] source,double speed,boolean replayRequested,String diagnostic,String queueId)throws Exception{
+        begin(context,source,speed,replayRequested,diagnostic,queueId,null);
+    }
+    static synchronized void begin(Context context,byte[] source,double speed,boolean replayRequested,String diagnostic,String queueId,JSONObject seedPlan)throws Exception{
         if(busy)throw new IOException("已有本机任务正在处理；不会重复播放");
         if(!OverlayAccess.allowed(context))throw new IOException("请先允许控制台显示悬浮进度卡，再重新选择 HTML");
         if(context.getPackageManager().getLaunchIntentForPackage(StandaloneDoctor.GAME)==null)throw new IOException("未找到已安装的指定客户端");
@@ -73,10 +81,16 @@ public final class PlaybackService extends Service {
         if(!requests.isDirectory()&&!requests.mkdir())throw new IOException("无法创建私有请求目录");
         String id=UUID.randomUUID().toString();
         MainActivity.write(new File(requests,id+".html"),source);
+        String seedPlanHash="";
+        if(seedPlan!=null){
+            if(!"royale-replay.seed-locked-playback.v1".equals(seedPlan.optString("schema",""))||!MainActivity.sha(source).equals(seedPlan.optString("source_sha256","")))throw new IOException("固定种子请求来源不一致");
+            byte[] planBytes=seedPlan.toString().getBytes(StandardCharsets.UTF_8);
+            MainActivity.write(new File(requests,id+".seed.json"),planBytes);seedPlanHash=MainActivity.sha(planBytes);
+        }
         busy=true;armedQueueId=queueId;armedPlaying=false;cancelQueueId="";armedSpeed=speed;
         try{
             save(context,new JSONObject().put("state","queued").put("request_id",id).put("source_sha256",MainActivity.sha(source)).put("message","正在本机准备；整局校验后显示悬浮进度并打开游戏。"));
-            context.startForegroundService(new Intent(context,PlaybackService.class).putExtra("request_id",id).putExtra("speed",speed).putExtra("replay_requested",replayRequested?"yes":"no").putExtra("diagnostic_prefix",diagnostic));
+            context.startForegroundService(new Intent(context,PlaybackService.class).putExtra("request_id",id).putExtra("speed",speed).putExtra("replay_requested",replayRequested?"yes":"no").putExtra("diagnostic_prefix",diagnostic).putExtra("seed_plan_sha256",seedPlanHash));
         }catch(Exception e){busy=false;armedQueueId="";save(context,new JSONObject().put("state","request_failed").put("message",e.toString()));throw e;}
     }
     static void openGame(Context context)throws IOException{
@@ -133,6 +147,7 @@ public final class PlaybackService extends Service {
         else ((NotificationManager)getSystemService("notification")).notify(21,notification);
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
+        if(ReplayReset.blocked(this)){stopSelf();return START_NOT_STICKY;}
         if(running)return START_NOT_STICKY;
         running=true;busy=true;active=this;
         NotificationManager notifications=(NotificationManager)getSystemService("notification");
@@ -142,6 +157,7 @@ public final class PlaybackService extends Service {
         final String id=intent==null?"":intent.getStringExtra("request_id");
         final boolean replayRequested=intent!=null&&"yes".equals(intent.getStringExtra("replay_requested"));
         final String diagnostic=intent==null?"":intent.getStringExtra("diagnostic_prefix");
+        final String seedPlanHash=intent==null?"":intent.getStringExtra("seed_plan_sha256");
         final String queueId=armedQueueId;
         if(id!=null&&id.matches("[a-f0-9-]{36}")&&OverlayAccess.allowed(this))try{
             // Native preparation needs the client foreground, including the
@@ -155,11 +171,17 @@ public final class PlaybackService extends Service {
         new Thread(new Runnable(){public void run(){String finalTitle="任务已结束",finalMessage="点此返回控制台查看结果。";try{
             if(id==null||!id.matches("[a-f0-9-]{36}"))throw new IOException("缺少明确的本机请求；不恢复或自动重试旧任务");
             byte[] source=MainActivity.read(new FileInputStream(new File(getFilesDir(),"phone-requests/"+id+".html")),ReplaySource.MAX_BYTES);
-            JSONObject job=NativePython.startPlayback(PlaybackService.this,source,speed,diagnostic==null?"":diagnostic,!queueId.isEmpty());
+            JSONObject seedPlan=null;
+            if(seedPlanHash!=null&&!seedPlanHash.isEmpty()){
+                byte[] bytes=MainActivity.read(new FileInputStream(new File(getFilesDir(),"phone-requests/"+id+".seed.json")),4*1024*1024);
+                if(!seedPlanHash.equals(MainActivity.sha(bytes)))throw new IOException("固定种子请求文件发生变化");
+                seedPlan=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
+            }
+            JSONObject job=NativePython.startPlayback(PlaybackService.this,source,speed,diagnostic==null?"":diagnostic,!queueId.isEmpty(),seedPlan);
             save(PlaybackService.this,new JSONObject().put("state","queued").put("request_id",id).put("source_sha256",MainActivity.sha(source)).put("directory",job.getString("directory")).put("message","正在本机校验；尚未跳转游戏。"));
             File status=new File(job.getString("directory"),"status.json");
             boolean returnToConsole=false,completed=false;
-            for(;;){
+            while(running){
                 if(status.isFile()){
                     JSONObject state=new JSONObject(MainActivity.text(status,32768));
                     String phase=state.optString("state","");

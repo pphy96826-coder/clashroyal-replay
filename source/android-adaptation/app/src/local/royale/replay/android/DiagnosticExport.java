@@ -10,7 +10,7 @@ import java.util.zip.*;
 
 /** Bounded, click-scoped export of our own records. No root, game or network API. */
 public final class DiagnosticExport {
-    static final String VERSION="2026.10.21-hotfix11";
+    static final String VERSION="2026.10.23-mumu-hotfix70-port";
     private static final int MAX_FILE=4*1024*1024,MAX_TOTAL=16*1024*1024,MAX_FILES=256;
     private static final Set<String> GLOBAL=new HashSet<String>(Arrays.asList(
         "phone-active.json","phone-service-state.json","local-import-status.json",
@@ -18,7 +18,8 @@ public final class DiagnosticExport {
     private static final Set<String> TASK=new HashSet<String>(Arrays.asList(
         "status.json","error.txt","native-entry.json","ability-search.json","failure-recovery.json",
         "preparation-release.json","process-release.json","automatic-return.json","maps-diagnostic.json",
-        "preparation-hint.json","seed-search.json","terminal-choice.json"));
+        "preparation-hint.json","seed-search.json","terminal-choice.json",
+        "prediction-process.jsonl","matching-source.json","page-comparison.json","skill-candidate-pool.json"));
     private DiagnosticExport(){}
 
     static File checkedTask(File files,File active)throws IOException{

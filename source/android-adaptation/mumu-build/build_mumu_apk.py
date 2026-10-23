@@ -8,6 +8,8 @@ version=previous.get('version_code',2026102100)+1;revision=version-2026102100;na
 def run(args,env=None):subprocess.run(list(map(str,args)),check=True,env=env,timeout=180)
 for file in (source/'app/src').rglob('*.java'):
     text=file.read_text(encoding='utf-8').replace('local.royale.replay.android',package).replace('com.microsoft.emmx','com.android.chrome').replace('Microsoft Edge','Google Chrome').replace('Edge','Chrome')
+    if file.name=='DiagnosticExport.java':
+        text=re.sub(r'static final String VERSION="[^"]+";', 'static final String VERSION="'+name+'";',text)
     if file.name=='NativePython.java':
         text=text.replace('StandaloneDoctor.root(command,90)','StandaloneDoctor.root(command,300)')
         marker='if(count<10)throw new IOException("incomplete runtime manifest");'
@@ -25,6 +27,8 @@ manifest,n2=re.subn(r'android:versionName="[^"]+"','android:versionName="'+name+
 assert n1==n2==1
 manifest=manifest.replace('</queries>','<package android:name="com.android.chrome" /></queries>')
 manifest=manifest.replace('</manifest>','<instrumentation android:name=".MuMuPlaybackIntegrationTests" android:targetPackage="'+package+'" android:label="Explicit MuMu end-to-end replay acceptance" /></manifest>')
+manifest=manifest.replace('</manifest>','<instrumentation android:name=".SkillTargetTests" android:targetPackage="'+package+'" android:label="Explicit named-skill simulation without scene" /></manifest>')
+manifest=manifest.replace('</manifest>','<instrumentation android:name=".ResetIntegrationTests" android:targetPackage="'+package+'" android:label="Explicit owned replay process reset acceptance" /></manifest>')
 (stage/'AndroidManifest.xml').write_text(manifest,encoding='utf-8')
 native=stage/'native';native.mkdir(exist_ok=True)
 with zipfile.ZipFile(root/'work/android-hotfix10/Android-Replay-20261020-hotfix10.apk') as original:

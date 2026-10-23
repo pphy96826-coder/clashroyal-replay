@@ -9,12 +9,25 @@ import org.json.JSONObject;
 /** Explicit device acceptance: real service, overlay and source-bound handoff. */
 public final class MuMuPlaybackIntegrationTests extends Instrumentation {
     private String expected="complete";
+    private String lockedSeed="";
     private boolean foregroundPreparation,useQueue,autoImport;
-    @Override public void onCreate(Bundle args){super.onCreate(args);if(args!=null){if("released".equals(args.getString("expected")))expected="released";foregroundPreparation="yes".equals(args.getString("foreground_preparation"));useQueue="yes".equals(args.getString("use_queue"));autoImport="yes".equals(args.getString("auto_import"));}start();}
+    @Override public void onCreate(Bundle args){super.onCreate(args);if(args!=null){if("released".equals(args.getString("expected")))expected="released";lockedSeed=args.getString("locked_seed","");foregroundPreparation="yes".equals(args.getString("foreground_preparation"));useQueue="yes".equals(args.getString("use_queue"));autoImport="yes".equals(args.getString("auto_import"));}start();}
     @Override public void onStart(){Bundle result=new Bundle();try{
         if(!OverlayAccess.allowed(getTargetContext()))throw new IOException("MuMu test app overlay grant required");
         byte[] raw=MainActivity.read(new FileInputStream(new File(getTargetContext().getFilesDir(),"source.html")),ReplaySource.MAX_BYTES);
         final String hash=MainActivity.sha(raw);
+        JSONObject lockedPlan=null;
+        if(!lockedSeed.isEmpty()){
+            JSONObject prior=new JSONObject(MainActivity.text(new File(getTargetContext().getFilesDir(),"phone-active.json"),8192));
+            File checkpoint=PrivateTaskPaths.resolve(getTargetContext().getFilesDir(),new File(prior.getString("directory")),false);
+            byte[] proofBytes=MainActivity.read(new FileInputStream(new File(checkpoint,"skill-checkpoint-result.json")),4*1024*1024);
+            JSONObject proof=new JSONObject(new String(proofBytes,java.nio.charset.StandardCharsets.UTF_8));
+            int seed=Integer.parseInt(lockedSeed);
+            if(!hash.equals(proof.optString("source_sha256",""))||proof.getInt("random_seed")!=seed||proof.getJSONArray("solutions").length()!=1)throw new IOException("requested seed lacks a unique qualifying checkpoint");
+            lockedPlan=new JSONObject().put("schema","royale-replay.seed-locked-playback.v1").put("source_sha256",hash).put("random_seed",seed)
+                .put("checkpoint_directory",checkpoint.getAbsolutePath()).put("checkpoint_result_sha256",MainActivity.sha(proofBytes))
+                .put("selected_attempt",proof.getJSONArray("solutions").getJSONObject(0).getJSONObject("evidence").getString("attempt"));
+        }
         final File serviceState=new File(getTargetContext().getFilesDir(),"phone-service-state.json");
         final String previousService=serviceState.isFile()?MainActivity.text(serviceState,32768):"";
         getTargetContext().startActivity(new Intent(getTargetContext(),MainActivity.class).addFlags(0x10000000));
@@ -31,7 +44,8 @@ public final class MuMuPlaybackIntegrationTests extends Instrumentation {
             byte[] queued=ReplayQueue.next(getTargetContext().getFilesDir());
             if(!hash.equals(MainActivity.sha(queued)))throw new IOException("first queued replay differs from acceptance source");
             ConsoleActions.playNext(getTargetContext());
-        }else PlaybackService.begin(getTargetContext(),raw,4);
+        }else if(lockedPlan!=null)PlaybackService.begin(getTargetContext(),raw,4,true,"","",lockedPlan);
+        else PlaybackService.begin(getTargetContext(),raw,4);
         String requestId=null;
         if(foregroundPreparation){
             // First-install extraction can take longer than a fixed 1.5s. Wait
@@ -67,6 +81,7 @@ public final class MuMuPlaybackIntegrationTests extends Instrumentation {
             JSONObject state=new JSONObject(MainActivity.text(status,32768));
             if(!hash.equals(state.optString("source_sha256","")))continue;
             String phase=state.optString("state","");
+            if(!lockedSeed.isEmpty()&&state.has("random_seed")&&state.getInt("random_seed")!=Integer.parseInt(lockedSeed))throw new IOException("playback changed the selected seed");
             if(requestId==null){
                 if(!state.optBoolean("monitor_active",false)){
                     if(serviceText.equals(previousService))continue;
