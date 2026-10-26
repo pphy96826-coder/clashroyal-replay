@@ -91,6 +91,23 @@ class DiagnosticExportTests(unittest.TestCase):
         self.assertNotIn('task/status.json',files)
         self.assertIn(b'No readable active task',files['REPORT.txt'])
 
+    def test_startup_journals_export_without_any_task(self):
+        for name in ('playback-service-startup.jsonl','playback-service-startup.previous.jsonl'):
+            (self.files/name).write_text('{"stage":"on_create_foreground","duration_ms":4}\n')
+        files=self.export(False)
+        for name in ('playback-service-startup.jsonl','playback-service-startup.previous.jsonl'):
+            key='console/'+name
+            self.assertEqual(files[key],(self.files/name).read_bytes())
+            self.assertIn((hashlib.sha256(files[key]).hexdigest()+'  '+key).encode(),files['SHA256SUMS.txt'])
+        self.assertNotIn('task/status.json',files)
+
+    def test_oversized_startup_journal_is_skipped_without_a_task(self):
+        (self.files/'playback-service-startup.jsonl').write_bytes(b'x'*(4*1024*1024+1))
+        files=self.export(False)
+        self.assertNotIn('console/playback-service-startup.jsonl',files)
+        self.assertIn(b'Skipped console/playback-service-startup.jsonl',files['REPORT.txt'])
+        self.assertIn('console/phone-active.json',files)
+
     def test_oversized_record_skipped_and_source_unchanged(self):
         (self.task/'bootstrap-v2-result.json').write_bytes(b'a'*(4*1024*1024+1))
         before={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in self.files.rglob('*') if path.is_file()}
