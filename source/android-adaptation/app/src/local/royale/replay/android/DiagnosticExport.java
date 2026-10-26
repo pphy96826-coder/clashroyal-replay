@@ -14,6 +14,7 @@ public final class DiagnosticExport {
     private static final int MAX_FILE=4*1024*1024,MAX_TOTAL=16*1024*1024,MAX_FILES=256;
     private static final Set<String> GLOBAL=new HashSet<String>(Arrays.asList(
         "phone-active.json","phone-service-state.json","local-import-status.json",
+        "playback-service-startup.jsonl","playback-service-startup.previous.jsonl",
         "local-preparation-status.json","local-preparation-process.json","local-build-status.json","local-tools-status.json"));
     private static final Set<String> TASK=new HashSet<String>(Arrays.asList(
         "status.json","error.txt","native-entry.json","ability-search.json","failure-recovery.json",

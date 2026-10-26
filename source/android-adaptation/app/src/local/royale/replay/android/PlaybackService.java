@@ -90,6 +90,7 @@ public final class PlaybackService extends Service {
         busy=true;armedQueueId=queueId;armedPlaying=false;cancelQueueId="";armedSpeed=speed;
         try{
             save(context,new JSONObject().put("state","queued").put("request_id",id).put("source_sha256",MainActivity.sha(source)).put("message","正在本机准备；整局校验后显示悬浮进度并打开游戏。"));
+            ServiceStartupLog.record(context,"start_requested",id,0);
             context.startForegroundService(new Intent(context,PlaybackService.class).putExtra("request_id",id).putExtra("speed",speed).putExtra("replay_requested",replayRequested?"yes":"no").putExtra("diagnostic_prefix",diagnostic).putExtra("seed_plan_sha256",seedPlanHash));
         }catch(Exception e){busy=false;armedQueueId="";save(context,new JSONObject().put("state","request_failed").put("message",e.toString()));throw e;}
     }
@@ -136,48 +137,77 @@ public final class PlaybackService extends Service {
     static Notification progressNotification(Context context,String title,String message,boolean ongoing){
         Intent console=new Intent(context,MainActivity.class).addFlags(0x24000000);
         PendingIntent back=PendingIntent.getActivity(context,0,console,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(context,"phone-replay")
+        Notification.Builder builder=new Notification.Builder(context,"phone-replay")
             .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(title)
             .setContentText(message).setStyle(new Notification.BigTextStyle().bigText(message))
-            .setContentIntent(back).setOnlyAlertOnce(true).setOngoing(ongoing).build();
+            .setContentIntent(back).setOnlyAlertOnce(true).setOngoing(ongoing);
+        // Android 12 can defer FGS notifications by default. Show the startup
+        // notification immediately, even while slow preparation is pending.
+        if(ongoing&&android.os.Build.VERSION.SDK_INT>=31)
+            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        return builder.build();
     }
     private void notice(String title,String message,boolean ongoing){
         Notification notification=progressNotification(this,title,message,ongoing);
         if(ongoing)startForeground(21,notification);
         else ((NotificationManager)getSystemService("notification")).notify(21,notification);
     }
-    @Override public int onStartCommand(Intent intent,int flags,int startId){
-        if(ReplayReset.blocked(this)){stopSelf();return START_NOT_STICKY;}
-        if(running)return START_NOT_STICKY;
-        running=true;busy=true;active=this;
+    /** No file checks, runtime loading, overlays or game calls before promotion. */
+    private void startupForeground(){
         NotificationManager notifications=(NotificationManager)getSystemService("notification");
         notifications.createNotificationChannel(new NotificationChannel("phone-replay","本机回放进度",NotificationManager.IMPORTANCE_LOW));
-        notice("准备中 · 手机独立回放","准备阶段留在控制台；整局校验后显示悬浮进度并打开游戏。",true);
+        startForeground(21,progressNotification(this,"正在准备回放","正在启动本机回放服务；尚未创建原生战斗任务。",true));
+    }
+    @Override public void onCreate(){
+        super.onCreate();
+        long entered=android.os.SystemClock.elapsedRealtime();
+        startupForeground();
+        ServiceStartupLog.record(this,"on_create_foreground","",android.os.SystemClock.elapsedRealtime()-entered);
+    }
+    @Override public int onStartCommand(Intent intent,int flags,int startId){
+        // Also re-promote an existing instance: it may be finishing an older
+        // request. Every startForegroundService call must meet the deadline,
+        // including duplicate, reset-blocked and invalid requests.
+        startupForeground();
+        ServiceStartupLog.record(this,"on_start_foreground",intent==null?"":intent.getStringExtra("request_id"),0);
+        if(ReplayReset.blocked(this)){
+            ServiceStartupLog.record(this,"reset_blocked","",0);
+            if(!running){busy=false;armedQueueId="";stopForeground(true);stopSelf(startId);}
+            return START_NOT_STICKY;
+        }
+        if(running){ServiceStartupLog.record(this,"duplicate_start_ignored","",0);return START_NOT_STICKY;}
+        running=true;busy=true;active=this;
         final double speed=intent==null?1:intent.getDoubleExtra("speed",1);
         final String id=intent==null?"":intent.getStringExtra("request_id");
         final boolean replayRequested=intent!=null&&"yes".equals(intent.getStringExtra("replay_requested"));
         final String diagnostic=intent==null?"":intent.getStringExtra("diagnostic_prefix");
         final String seedPlanHash=intent==null?"":intent.getStringExtra("seed_plan_sha256");
         final String queueId=armedQueueId;
-        if(id!=null&&id.matches("[a-f0-9-]{36}")&&OverlayAccess.allowed(this))try{
-            // Native preparation needs the client foreground, including the
-            // automatically prepared row after a verified client refresh.
-            // Starting this service never publishes a scene: the explicit play
-            // request/source-bound foreground handoff is still required.
-            FloatingConsole.start(this);
-            FloatingConsole.note(this,"正在游戏大厅准备回放；就绪后可在悬浮窗播放。后台 HTML 解析可同时进行。");
-            openGame(this);
-        }catch(Exception e){FloatingConsole.note(this,"请打开游戏并进入大厅，原生准备会等待；队列已保存。");}
         new Thread(new Runnable(){public void run(){String finalTitle="任务已结束",finalMessage="点此返回控制台查看结果。";try{
             if(id==null||!id.matches("[a-f0-9-]{36}"))throw new IOException("缺少明确的本机请求；不恢复或自动重试旧任务");
+            ServiceStartupLog.record(PlaybackService.this,"worker_read_source",id,0);
             byte[] source=MainActivity.read(new FileInputStream(new File(getFilesDir(),"phone-requests/"+id+".html")),ReplaySource.MAX_BYTES);
+            MainActivity.checkedSource(source);
             JSONObject seedPlan=null;
             if(seedPlanHash!=null&&!seedPlanHash.isEmpty()){
                 byte[] bytes=MainActivity.read(new FileInputStream(new File(getFilesDir(),"phone-requests/"+id+".seed.json")),4*1024*1024);
                 if(!seedPlanHash.equals(MainActivity.sha(bytes)))throw new IOException("固定种子请求文件发生变化");
                 seedPlan=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
             }
+            // UI work is scheduled only after promotion and input validation;
+            // interpreter/tool initialization stays on this worker thread.
+            final java.util.concurrent.CountDownLatch gameRequested=new java.util.concurrent.CountDownLatch(1);
+            ui.post(new Runnable(){public void run(){if(!running)return;try{
+                if(!OverlayAccess.allowed(PlaybackService.this))return;
+                FloatingConsole.start(PlaybackService.this);
+                FloatingConsole.note(PlaybackService.this,"正在游戏大厅准备回放；就绪后可在悬浮窗播放。后台 HTML 解析可同时进行。");
+                openGame(PlaybackService.this);
+            }catch(Exception error){FloatingConsole.note(PlaybackService.this,"请打开游戏并进入大厅，原生准备会等待；队列已保存。");}
+            finally{gameRequested.countDown();}}});
+            if(!gameRequested.await(10,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("界面启动请求未响应；未启动原生执行器，请保留启动诊断");
+            ServiceStartupLog.record(PlaybackService.this,"worker_runtime_start",id,0);
             JSONObject job=NativePython.startPlayback(PlaybackService.this,source,speed,diagnostic==null?"":diagnostic,!queueId.isEmpty(),seedPlan);
+            ServiceStartupLog.record(PlaybackService.this,"worker_runtime_started",id,0);
             save(PlaybackService.this,new JSONObject().put("state","queued").put("request_id",id).put("source_sha256",MainActivity.sha(source)).put("directory",job.getString("directory")).put("message","正在本机校验；尚未跳转游戏。"));
             File status=new File(job.getString("directory"),"status.json");
             boolean returnToConsole=false,completed=false;
@@ -224,6 +254,7 @@ public final class PlaybackService extends Service {
                 }
             }
         }catch(Exception error){try{
+            ServiceStartupLog.record(PlaybackService.this,"worker_failed",id,0);
             finalTitle="未开始播放 / 任务异常";finalMessage=error.toString();
             save(PlaybackService.this,new JSONObject().put("state","request_failed").put("message",finalMessage));
         }catch(Exception ignored){}
@@ -235,9 +266,9 @@ public final class PlaybackService extends Service {
             // After this instance stops: prepare the next queue row in advance (once per game process); never plays by itself.
             final Context app=getApplicationContext();
             new Thread(new Runnable(){public void run(){try{Thread.sleep(1500);}catch(InterruptedException ignored){}ConsoleActions.autoPrepare(app);}}).start();
-        }}}).start();
+        }}} ,"ReplayPlayback").start();
         return START_NOT_STICKY;
     }
     @Override public IBinder onBind(Intent intent){return null;}
-    @Override public void onDestroy(){coverShown=false;if(overlay!=null)overlay.hide();if(active==this)active=null;super.onDestroy();}
+    @Override public void onDestroy(){ServiceStartupLog.record(this,"service_destroyed","",0);coverShown=false;if(overlay!=null)overlay.hide();if(active==this)active=null;super.onDestroy();}
 }
