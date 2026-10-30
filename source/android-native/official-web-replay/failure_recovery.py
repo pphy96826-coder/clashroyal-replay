@@ -20,6 +20,8 @@ def explanation(error):
     # Classify the actual terminal refusal before matching those quoted words.
     if any(word in lower for word in ('code=4', 'native4', '返回码4', '提前结算', '已进入结算', 'already terminal', '已结算')):
         return '原生引擎已提前结算，后续指令被拒绝。'+VERSION_CHECK_HINT+'其他可能原因包括时序或初始化差异，目前不认定唯一原因。'
+    if '没有合法目标' in lower or '合法目标数为0' in lower:
+        return '该模拟分支在技能时刻没有合法目标；可能是此前交互、目标存活状态或版本参数产生偏差。未跳过技能；请核对种子搜索记录及客户端版本。'
     if any(word in lower for word in ('ambiguous', 'ability target', '技能目标')):
         return '技能所属单位无法唯一确定；可能存在多个候选单位，未猜测目标或跳过技能。'
     if ('card-unavailable' in lower or '牌序' in lower

@@ -65,6 +65,10 @@ public final class PlaybackService extends Service {
         begin(context,source,speed,replayRequested,diagnostic,"");
     }
     static synchronized void begin(Context context,byte[] source,double speed,boolean replayRequested,String diagnostic,String queueId)throws Exception{
+        begin(context,source,speed,replayRequested,diagnostic,queueId,"");
+    }
+    static synchronized String begin(Context context,byte[] source,double speed,boolean replayRequested,String diagnostic,String queueId,String webJobId)throws Exception{
+        if(!webJobId.isEmpty()&&!webJobId.matches("[a-f0-9-]{36}"))throw new IOException("无效网站任务身份");
         if(busy)throw new IOException("已有本机任务正在处理；不会重复播放");
         if(!OverlayAccess.allowed(context))throw new IOException("请先允许控制台显示悬浮进度卡，再重新选择 HTML");
         if(context.getPackageManager().getLaunchIntentForPackage(StandaloneDoctor.GAME)==null)throw new IOException("未找到已安装的指定客户端");
@@ -76,8 +80,16 @@ public final class PlaybackService extends Service {
         busy=true;armedQueueId=queueId;armedPlaying=false;cancelQueueId="";armedSpeed=speed;
         try{
             save(context,new JSONObject().put("state","queued").put("request_id",id).put("source_sha256",MainActivity.sha(source)).put("message","正在本机准备；整局校验后显示悬浮进度并打开游戏。"));
-            context.startForegroundService(new Intent(context,PlaybackService.class).putExtra("request_id",id).putExtra("speed",speed).putExtra("replay_requested",replayRequested?"yes":"no").putExtra("diagnostic_prefix",diagnostic));
+            context.startForegroundService(new Intent(context,PlaybackService.class).putExtra("request_id",id).putExtra("speed",speed).putExtra("replay_requested",replayRequested?"yes":"no").putExtra("diagnostic_prefix",diagnostic).putExtra("web_job_id",webJobId));
         }catch(Exception e){busy=false;armedQueueId="";save(context,new JSONObject().put("state","request_failed").put("message",e.toString()));throw e;}
+        return id;
+    }
+    static boolean webRecordingReady(File directory,String webJobId,String sourceHash)throws Exception{
+        if(webJobId.isEmpty())return true;
+        File file=new File(directory,"web-record-ready.json");if(!file.isFile())return false;
+        JSONObject value=new JSONObject(MainActivity.text(file,4096));
+        return value.optBoolean("recording_started",false)&&value.optBoolean("system_audio",false)
+            &&webJobId.equals(value.optString("job_id",""))&&sourceHash.equals(value.optString("source_sha256",""));
     }
     static void openGame(Context context)throws IOException{
         Intent game=context.getPackageManager().getLaunchIntentForPackage(StandaloneDoctor.GAME);
@@ -132,11 +144,13 @@ public final class PlaybackService extends Service {
         final String id=intent==null?"":intent.getStringExtra("request_id");
         final boolean replayRequested=intent!=null&&"yes".equals(intent.getStringExtra("replay_requested"));
         final String diagnostic=intent==null?"":intent.getStringExtra("diagnostic_prefix");
+        final String webJobId=intent==null||intent.getStringExtra("web_job_id")==null?"":intent.getStringExtra("web_job_id");
         final String queueId=armedQueueId;final int started=epoch;
         new Thread(new Runnable(){public void run(){String finalTitle="任务已结束",finalMessage="点此返回控制台查看结果。";try{
             if(id==null||!id.matches("[a-f0-9-]{36}"))throw new IOException("缺少明确的本机请求；不恢复或自动重试旧任务");
             byte[] source=MainActivity.read(new FileInputStream(new File(getFilesDir(),"phone-requests/"+id+".html")),ReplaySource.MAX_BYTES);
             JSONObject job=NativePython.startPlayback(PlaybackService.this,source,speed,diagnostic==null?"":diagnostic,!queueId.isEmpty());
+            WebWorkerActivity.bindTask(PlaybackService.this,webJobId,id,MainActivity.sha(source),job);
             save(PlaybackService.this,new JSONObject().put("state","queued").put("request_id",id).put("source_sha256",MainActivity.sha(source)).put("directory",job.getString("directory")).put("message","正在本机校验；尚未跳转游戏。"));
             File status=new File(job.getString("directory"),"status.json");
             boolean returnToConsole=false,completed=false;
@@ -156,7 +170,8 @@ public final class PlaybackService extends Service {
                         File stop=new File(status.getParentFile(),"stop-request.json");
                         if(!stop.exists()&&!new File(status.getParentFile(),"foreground-request.json").exists())
                             MainActivity.write(stop,new JSONObject().put("cancel_before_scene",true).put("reason","queue changed before playback was requested").toString().getBytes(StandardCharsets.UTF_8));
-                    }else if((replayRequested||wanted)&&PlaybackHandoff.readyForForeground(state,MainActivity.sha(source),System.currentTimeMillis()/1000)&&NativePython.sameGameGeneration(state)){
+                    }else if((replayRequested||wanted)&&PlaybackHandoff.readyForForeground(state,MainActivity.sha(source),System.currentTimeMillis()/1000)&&NativePython.sameGameGeneration(state)
+                        &&webRecordingReady(status.getParentFile(),webJobId,MainActivity.sha(source))){
                         if(wanted&&!armedPlaying){armedPlaying=true;ConsoleActions.armedStarted(PlaybackService.this,queueId,source);}
                         final File directory=status.getParentFile();final String hash=MainActivity.sha(source);
                         ui.post(new Runnable(){public void run(){try{PlaybackHandoff.serviceForeground(PlaybackService.this,id,hash,directory);}catch(Exception ignored){/* No scene is published without the signal. */}}});

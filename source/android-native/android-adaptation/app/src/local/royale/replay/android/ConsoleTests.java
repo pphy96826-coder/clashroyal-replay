@@ -20,7 +20,7 @@ public final class ConsoleTests extends Instrumentation {
         android.app.Notification notification=PlaybackService.progressNotification(getTargetContext(),"测试进度","不发通知、不启动游戏",true);
         if(notification.contentIntent==null||!notification.contentIntent.getCreatorPackage().equals("local.royale.replay.android"))throw new AssertionError("notification has no console return target");count++;
         String hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        JSONObject started=new JSONObject().put("state","playing").put("source_sha256",hash).put("updated_at",1000).put("standalone_playback_ready",true).put("native_roundtrip_verified",true).put("playback_started",true).put("scene_frames",3).put("scene_initial_tick",10).put("tick",20).put("game_pid",1).put("game_start_time","42");
+        JSONObject started=new JSONObject().put("state","playing").put("source_sha256",hash).put("updated_at",1000).put("standalone_playback_ready",true).put("source_execution_verified",true).put("native_roundtrip_verified",true).put("playback_started",true).put("scene_frames",3).put("scene_initial_tick",10).put("tick",20).put("game_pid",1).put("game_start_time","42");
         if(!PlaybackHandoff.verified(started,hash,1001))throw new AssertionError("fresh verified play refused");count++;
         for(String phase:new String[]{"queued","loading","waiting_lobby","starting","waiting_foreground","needs_review","complete"}){
             started.put("state",phase);if(PlaybackHandoff.verified(started,hash,1001))throw new AssertionError("premature handoff "+phase);count++;

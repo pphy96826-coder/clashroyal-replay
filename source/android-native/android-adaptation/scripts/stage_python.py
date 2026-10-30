@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tarfile
 import zipfile
+from runtime_variants import expand
 
 ROOT=Path(__file__).resolve().parents[1]
 EXPECTED='11324313957da3736f44e90257304d288864321a4dd376ed0cc35a54eacf9a33'
@@ -56,26 +57,32 @@ def main():
     for relative in ('native_runner/__init__.py','native_runner/royaleapi_replay.py','native_runner/card-aliases.json',
                      'native_runner/tools/__init__.py','native_runner/tools/royaleapi_hog_il.py'):
         files['app/'+relative]=vendor/relative
-    files['app/import_replay.py']=args.payload/'official-web-replay/import_replay.py'
+    def owned_source(name):
+        current=ROOT/'runtime-source'/name
+        return current if current.is_file() else args.payload/name
+    files['app/import_replay.py']=owned_source('official-web-replay/import_replay.py')
     for file in (ROOT/'device').glob('*.py'):files['app/'+file.name]=file
     for name in ('observe_card_levels.py','observe_tower_catalog.py','prepare_native_replay.py','tower_profiles.py','elf_contract.py','local_assets.py','bootstrap_input.py',
                  'run_bootstrap_gate.py','run_scene_gate.py','align_native_deal.py','finalize_replay.py','source_completion.py',
                  'scene_input.py','scene_start_contract.py','timing_policy.py','timing_experiment.py','failure_recovery.py','ability_search.py','diagnostic_prefix.py'):
-        files['app/'+name]=args.payload/'official-web-replay'/name
+        files['app/'+name]=owned_source('official-web-replay/'+name)
     sources=('official-web-replay/native_bootstrap_probe.cpp','official-web-replay/cache_lease.h',
-             'official-web-replay/source_execution.h','official-web-replay/native_tower_check.h',
+             'official-web-replay/source_execution.h','official-web-replay/native_tower_check.h','official-web-replay/client_layout.h',
              'official-web-replay/native_scene_probe.cpp','official-web-replay/replay_frame_clock.h',
              'offline-private-layout/layout_cycle.h','offline-private-map/map_cycle.h',
              'runtime-audit-20261014-direct-route-v12/build/runtime_probe.cpp',
              'offline-queue-runtime/empty_publisher.cpp','offline-queue-runtime/empty_publisher.h',
              'offline-task-prototype/noop_task.cpp','offline-task-prototype/noop_task.h')
-    for name in sources:files['app/native-src/'+name]=args.payload/name
+    for name in sources:
+        current=ROOT/'runtime-source'/name
+        files['app/native-src/'+name]=current if current.is_file() else args.payload/name
     files['app/native-contract.json']=args.payload/'profiles/native-contract.json'
     files['app/native-code-contract.json']=ROOT/'profiles/native-code-contract.json'
     for name in ('FIRSTLIGHT-LICENSE','FIRSTLIGHT-NOTICE'):files['app/'+name]=vendor/name
-    manifest={name:hashlib.sha256(file.read_bytes()).hexdigest() for name,file in files.items()}
+    contents=expand({name:file.read_bytes() for name,file in files.items()},ROOT)
+    manifest={name:hashlib.sha256(raw).hexdigest() for name,raw in contents.items()}
     with zipfile.ZipFile(package,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
-        for name,file in files.items():archive.write(file,name)
+        for name,raw in contents.items():archive.writestr(name,raw)
         archive.writestr('runtime-files.json',json.dumps(manifest,sort_keys=True))
     (bundle/'python-runtime.sha256').write_text(hashlib.sha256(package.read_bytes()).hexdigest())
     report=dict(python_archive_sha256=EXPECTED,python_version='3.14.8',runtime_sha256=hashlib.sha256(package.read_bytes()).hexdigest(),

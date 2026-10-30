@@ -10,10 +10,10 @@ import java.util.zip.*;
 
 /** Bounded, click-scoped export of our own records. No root, game or network API. */
 public final class DiagnosticExport {
-    static final String VERSION="2026.10.23-hotfix70";
+    static final String VERSION="2026.10.30-hotfix77";
     private static final int MAX_FILE=4*1024*1024,MAX_TOTAL=16*1024*1024,MAX_FILES=256;
     private static final Set<String> GLOBAL=new HashSet<String>(Arrays.asList(
-        "phone-active.json","phone-service-state.json","local-import-status.json",
+        "client-compatibility.json","phone-active.json","phone-service-state.json","local-import-status.json",
         "local-preparation-status.json","local-preparation-process.json","local-build-status.json","local-tools-status.json"));
     private static final Set<String> TASK=new HashSet<String>(Arrays.asList(
         "status.json","error.txt","native-entry.json","ability-search.json","seed-search.json","page-comparison.json","failure-recovery.json",
@@ -43,7 +43,7 @@ public final class DiagnosticExport {
             for(String name:new String[]{"process-output.txt","phone-finish/error.txt","phone-finish/result.json","preparation-release/result.json"})
                 selected.put("task/actions/"+action.getName()+"/"+name,new File(action,name));
         File preparation=new File(task,"native-preparation");
-        for(String name:new String[]{"result.json","observation.json","levels.json","towers.json","preparation.json","preparation-delayed.json","maps-read-diagnostic.json"})
+        for(String name:new String[]{"result.json","observation.json","levels.json","towers.json","preparation.json","preparation-delayed.json","maps-read-diagnostic.json","catalog-update-diagnostic.json","tower-update-diagnostic.json"})
             selected.put("task/native-preparation/"+name,new File(preparation,name));
         // Calibration is bounded to 12 attempts by the runtime, not a recursive scan.
         for(int i=0;i<12;i++)selected.put("task/native-preparation/preparation-calibrated-"+i+".json",new File(preparation,"preparation-calibrated-"+i+".json"));

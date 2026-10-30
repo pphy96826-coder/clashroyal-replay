@@ -1,0 +1,528 @@
+{
+  "schema": "royale-replay.client-adapter-investigation.v1",
+  "version": "38.5.2",
+  "library_sha256": "0849d86b8a3689589e81fa2c50173e92f2ebf5fa0984c36ed4b448723d833fe2",
+  "reference_library_sha256": "c6b2482a2f1fbd2e15c99df7fb18ba3d5596b77b3a81930d3638241a3c37fe55",
+  "state": "incomplete_readonly_evidence",
+  "supported": false,
+  "native_execution_allowed": false,
+  "contains_process_handles": false,
+  "domain": {
+    "allocation_bytes": {
+      "old": 576,
+      "new": 584,
+      "evidence": "3 old and 6 new explicit allocation call sites"
+    },
+    "members": {
+      "0x9c": "0xa0",
+      "0xa0": "0xa4",
+      "0x220": "0x228"
+    },
+    "candidate_functions": {
+      "constructor": "0x1468840",
+      "cleanup": "0x1468d68",
+      "bootstrap": "0x1469810",
+      "step": "0x1469bc0"
+    },
+    "evidence": "Fresh loaded code: the bootstrap and step normalized streams differ only in three references each to member 0x220 -> 0x228. Constructor and cleanup corroborate that move."
+  },
+  "avatar": {
+    "members": {
+      "hand_index_array": {
+        "old": "0x218",
+        "new": "0x220"
+      },
+      "elixir_dependency": {
+        "old": "0x250",
+        "new": "0x258"
+      },
+      "current_elixir": {
+        "old": "0x300",
+        "new": "0x308"
+      },
+      "elixir_override": {
+        "old": "0x408",
+        "new": "0x410"
+      },
+      "spent_elixir": {
+        "old": "0x348",
+        "new": "0x350"
+      },
+      "gained_elixir": {
+        "old": "0x34c",
+        "new": "0x354"
+      },
+      "leaked_elixir": {
+        "old": "0x350",
+        "new": "0x358"
+      }
+    },
+    "candidate_functions": {
+      "hand": "0x12f8dd4",
+      "elixir": "0x12fd0a0",
+      "ability_spend": "0x12fba94",
+      "elixir_gain": "0x12fc9d8"
+    },
+    "evidence": "Fresh loaded 148-byte accessors; hand differs only in the index-array displacement. Elixir also reads a different member of a secondary data object (0x1b0 -> 0x1c0), which must not be applied as an Avatar offset.",
+    "accounting_evidence": "Fresh process-bound double-read captures match installed code for 148-byte ability spend and 204-byte capped gain. Separate read/write paths corroborate all four accounting fields; secondary data-object member moves are not applied to Avatar. Full adapter execution remains unverified."
+  },
+  "scene": {
+    "old_table": "0x1bd3cb0",
+    "candidate_table": "0x1ce4930",
+    "candidate_functions": {
+      "constructor": "0xe7b388",
+      "interpolate": "0xe7ed8c",
+      "frame": "0xe802bc"
+    },
+    "slots": {
+      "interpolate": {
+        "old": "0xb08",
+        "new": "0xb28"
+      },
+      "frame": {
+        "old": "0xb10",
+        "new": "0xb30"
+      }
+    },
+    "evidence": "Table base taken from the constructor, not old-slot subtraction; method slots checked against ARM64 relative relocations. Method identity still requires full validation."
+  },
+  "resources": {
+    "root": "0x1e477e0",
+    "manager": "0x1e631c0",
+    "worker_loop": "0x1ea5a60",
+    "worker_handle": "0x1ea5a68",
+    "evidence": "Derived from matching resource functions; fresh read-only observation confirms non-null services, manager, worker and an existing worker thread. No captured process handles are included here."
+  },
+  "remaining": [
+    "Resolve and validate every required native function and static-data reference, including runtime-transformed code.",
+    "Audit all Avatar accounting fields, queue/card access and tower/ability layouts; do not apply a blanket +8 correction.",
+    "Generate a version-specific runtime contract and owned source bindings without changing the legacy adapter.",
+    "Verify private initialization, complete native execution, JSON round-trip, visible playback and terminal results before enabling this adapter."
+  ],
+  "unit_ability": {
+    "ready_slot": {
+      "old": "0x190",
+      "new": "0x198"
+    },
+    "table_read_extent": {
+      "old": "0x198",
+      "new": "0x1a0"
+    },
+    "evidence": "Current loaded ability executor uses the new virtual slot; its other normalized deltas are the Avatar intent counter. This applies to Unit vtables, not every vtable."
+  },
+  "selection": {
+    "definition_virtual_slot": {
+      "old": "0x1f8",
+      "new": "0x200"
+    },
+    "evidence": "Full 28-byte loaded selection getter has exactly this one displacement change."
+  },
+  "replay_controller": {
+    "presentation_handle": {
+      "old": "0x2b0",
+      "new": "0x2c8"
+    },
+    "evidence": "Current 1440-byte generic controller frame reads the handle at the new offset twice, immediately before the same presentation lookup/frame calls. Domain and scene callback displacements are tracked separately."
+  },
+  "core_entries": {
+    "count": 47,
+    "normalized_equal_count": 35,
+    "runtime_code_read_bytes": 31120,
+    "generation_verified": true,
+    "internal_branch_relations_checked": 377,
+    "known_call_relations_checked": 97,
+    "control_flow_mismatches": 0,
+    "compatibility_approved": false,
+    "functions": [
+      {
+        "old_va": "0x1365bf0",
+        "new_va": "0x1468840",
+        "bytes": 920,
+        "runtime_sha256": "4c7ad99f36e93e2b6b82d805cd0166f9ace639620403dccb0fe8604a7878db46",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1366114",
+        "new_va": "0x1468d68",
+        "bytes": 1712,
+        "runtime_sha256": "4662cbf37645d26bf8357cd748430afb8bfff513e9d6d939593410d4723fac5e",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xabea80",
+        "new_va": "0xb1cbb0",
+        "bytes": 176,
+        "runtime_sha256": "c3b058ed1f84b7ed06f6128e5851860dca7d370ec91386cfbdf1fcfb13928c52",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1366bb4",
+        "new_va": "0x1469810",
+        "bytes": 512,
+        "runtime_sha256": "763236f70109afa01bec570f43e7e9d53ea3646001f1059ab3970614331e8eef",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1470500",
+        "new_va": "0x1573dd0",
+        "bytes": 904,
+        "runtime_sha256": "6ec88e43dd192d997e8430cdeb55ac57aa48096651214e566ed350e76fd232f4",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x146f060",
+        "new_va": "0x1572928",
+        "bytes": 3668,
+        "runtime_sha256": "944232cfeef2c821f5bd638bbcc129e62b460f554dfadb271698d938309040ea",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1052df0",
+        "new_va": "0x113004c",
+        "bytes": 368,
+        "runtime_sha256": "91d5673b6d47072fec16c1212eaee60c9ec3ecee7264466094db9b40c9043d18",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1090a7c",
+        "new_va": "0x1170500",
+        "bytes": 52,
+        "runtime_sha256": "fb2fa2b15546ad5fb5591650c293cf0eddfdd7f71c3eea3630c71c689a79a5e9",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x16cb4d8",
+        "new_va": "0x17d2968",
+        "bytes": 128,
+        "runtime_sha256": "84369ebaa5199476dafce1bc38606c75b58aab0bb2eda8a19485af3a9bfafbe5",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x16cb3c8",
+        "new_va": "0x17d2858",
+        "bytes": 28,
+        "runtime_sha256": "fdad8eeb90eb994bf75e614c8b6a34ab83e13db62d4a2a97330ef5d24e7eae11",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1537d58",
+        "new_va": "0x163da98",
+        "bytes": 184,
+        "runtime_sha256": "a09b72363e3d4d9ec2b6e6dae871a38257f24f0c1f9633a5dee347e4948388ec",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1b34938",
+        "new_va": "0x1c3cbdc",
+        "bytes": 8,
+        "runtime_sha256": "171cd8cdcc44b3137c3578ad29022a5dd00a0ea906f359edbe279d9a19f82903",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1b34940",
+        "new_va": "0x1c3cbe4",
+        "bytes": 8,
+        "runtime_sha256": "0d1d2d7c366db44fbbd2b55c8f75df1d4692a3b7b21745231a963b65330625f4",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152cd44",
+        "new_va": "0x1632a70",
+        "bytes": 424,
+        "runtime_sha256": "9ae84ee133b732ba9ae7f14f78b7f225d2661b44a7814264677866e8940f95c0",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152ceec",
+        "new_va": "0x1632c18",
+        "bytes": 192,
+        "runtime_sha256": "cf204535f622a03b9aecb2f953701243480269db7951034ad3c51b1d9f65c942",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152d824",
+        "new_va": "0x1633550",
+        "bytes": 112,
+        "runtime_sha256": "659145459c80c13056e5b183ff6bf4e14fcef43470c19ccda8cab415db8867dc",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152d81c",
+        "new_va": "0x1633548",
+        "bytes": 8,
+        "runtime_sha256": "4197ad96213c98161e13fbfd6185a724b5570ba296d316558cbd5cc5c1842369",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152dcdc",
+        "new_va": "0x1633a1c",
+        "bytes": 16,
+        "runtime_sha256": "b14ef829ad21f5ca29187ab1052282e9c3c0e89897a88d47396d42171e866513",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152db84",
+        "new_va": "0x16338c4",
+        "bytes": 20,
+        "runtime_sha256": "91010041f88f2be42eb1d9ab0468760942a25de65ee24ecd77147341428e535a",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x152db5c",
+        "new_va": "0x163389c",
+        "bytes": 20,
+        "runtime_sha256": "6c058150081142844138b5179220e70e54d425bd57e64ce03b9db55d63050c36",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x10da32c",
+        "new_va": "0x11ba414",
+        "bytes": 140,
+        "runtime_sha256": "c3e39e351334c7121cc89eac63d35f7274c170a99a2ca1f12459f6d5511969e1",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x10da44c",
+        "new_va": "0x11ba534",
+        "bytes": 12,
+        "runtime_sha256": "603710c61fbd20b0a6160750893fb031623e0bd8680c77eb8b8948afc8fc6876",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x10da3b8",
+        "new_va": "0x11ba4a0",
+        "bytes": 148,
+        "runtime_sha256": "975112df774cf04c3841262ca143344c9b0e1c711023067651093afb960edcf9",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x10da758",
+        "new_va": "0x11ba840",
+        "bytes": 1032,
+        "runtime_sha256": "f800d748936011b3f9a1bcd41a1922dbda248492a9b45d7eb5f1ba9b73db6625",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x104b1d4",
+        "new_va": "0x1128368",
+        "bytes": 88,
+        "runtime_sha256": "31424ecca84ee3cd9146d27a64843d4f6969b5f74aedaedc8427b01019fa2379",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x103864c",
+        "new_va": "0x1113714",
+        "bytes": 148,
+        "runtime_sha256": "3132065dd93c6df8a9051e256df984c82776b4325f65a9eba056c56ceb43966e",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x12085b4",
+        "new_va": "0x12f8dd4",
+        "bytes": 148,
+        "runtime_sha256": "3dfe55850ac7cfae67a7db0d79fb5effbb973f44a1364ea73228dec3ba22f1d7",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x10cebe0",
+        "new_va": "0x11aeae0",
+        "bytes": 68,
+        "runtime_sha256": "df53a3d3d60a03a4763c3573427a43ab757c0e0e2c1a20af6e5460ff37e785d3",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x10ce6a4",
+        "new_va": "0x11ae5a4",
+        "bytes": 28,
+        "runtime_sha256": "5ef70d85087f7a35b05315b413bccd998da60396bf9aab9927b5c22b12a24930",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9ce00",
+        "new_va": "0x1075e3c",
+        "bytes": 88,
+        "runtime_sha256": "9f9c5d8506d1f2328d21806c9bbe561d802dd45cc1427bc1aa644aca8576344f",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9d5e0",
+        "new_va": "0x107661c",
+        "bytes": 20,
+        "runtime_sha256": "bbe5f10e67ff0b499e7d879c0c8b915f10ad38aba85fceef331a20f0cd82c2e2",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9d368",
+        "new_va": "0x10763a4",
+        "bytes": 8,
+        "runtime_sha256": "843a7debc0b463997745c738f8168d554e48889497955c820573ae8d590a43e1",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf96dcc",
+        "new_va": "0x106fd18",
+        "bytes": 8,
+        "runtime_sha256": "4f1731a5a3d5539e5c40e4019b837526eaa31ef7b03eb65ceaee7084e15a198b",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf96cf4",
+        "new_va": "0x106fc40",
+        "bytes": 8,
+        "runtime_sha256": "a5200317e3a877767038a611935f53526230362e33853a166017ee7706ac3d51",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf96de8",
+        "new_va": "0x106fd34",
+        "bytes": 56,
+        "runtime_sha256": "a26a6e4ff9aa91494a81daac2a13aaa122ef5c75c4476ea821af2876a91a7cc3",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9ce58",
+        "new_va": "0x1075e94",
+        "bytes": 1296,
+        "runtime_sha256": "5c93cc9eaf2f64c564ff6d5a28e6a9fc8e236f1faf11b21f9567f0e0067fc9c3",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9ab04",
+        "new_va": "0x1073b40",
+        "bytes": 196,
+        "runtime_sha256": "f864fee111070b61fc38f6582ea54b6d66b2a2b250340581d3ef9e9f6cdc22b9",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9d370",
+        "new_va": "0x10763ac",
+        "bytes": 336,
+        "runtime_sha256": "3cd941efd9b4348853ea05790ae9215e919699bc3771ca45d469847bdd79fbc4",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x1366f64",
+        "new_va": "0x1469bc0",
+        "bytes": 380,
+        "runtime_sha256": "f2016f6883b225b5fbe7fbddcc268b091743ef9a4b8d77f3611a9faf1cdd66bc",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf5603c",
+        "new_va": "0x102d43c",
+        "bytes": 132,
+        "runtime_sha256": "0dbd5d92a65874c71895cfd2c9b08991e4f576ec440657631bc7ba54b69fd8a7",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9fcac",
+        "new_va": "0x1078ce8",
+        "bytes": 96,
+        "runtime_sha256": "9d480a5f2afd08235e31d69d5e6b46262e2a9b65acf70792586a1d180b26dfba",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9fd0c",
+        "new_va": "0x1078d48",
+        "bytes": 620,
+        "runtime_sha256": "3c99009a9ca7fd29ae309a7f59b5f5f9234d6733ba1ff14f5facbfc55b0d1e8d",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9ff78",
+        "new_va": "0x1078fb4",
+        "bytes": 132,
+        "runtime_sha256": "8e55e2557d9889acebd26dab1bc3170bccfd94fb077cdb9563202c50a422e9e6",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x120f614",
+        "new_va": "0x12ffe90",
+        "bytes": 216,
+        "runtime_sha256": "15ea21f52f4746acb38fb984ce3744ed7003a6d6cec0c59000d27111772e9ac7",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x89d3e0",
+        "new_va": "0x8ed29c",
+        "bytes": 344,
+        "runtime_sha256": "fec5e5204bad147d22897b1fee9113b2afc6bce390d018864748ebff484105f0",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0x120c810",
+        "new_va": "0x12fd0a0",
+        "bytes": 148,
+        "runtime_sha256": "34118027eda2420b5dbe9fee5c12bdbc289c28b1a442fee2349d9c748457d5f7",
+        "normalized_equal": false,
+        "complete_adapter_verified": false
+      },
+      {
+        "old_va": "0xf9baac",
+        "new_va": "0x1074ae8",
+        "bytes": 204,
+        "runtime_sha256": "cd9ae184cc5e685496dde2df001601257ce85bb78803df4681dc3f33d4d9600f",
+        "normalized_equal": true,
+        "complete_adapter_verified": false
+      }
+    ]
+  },
+  "command_tables": {
+    "deploy": {
+      "old": "0x1bf6260",
+      "new": "0x1d07310"
+    },
+    "ability": {
+      "old": "0x1bf69b0",
+      "new": "0x1d07a60"
+    },
+    "execute_slot": "0x18",
+    "serializer_slot": "0x58",
+    "evidence": "Execute, serializer and tick-setter identities independently match the original command vtable slots in both binaries; no slot shift was applied to command tables."
+  }
+}

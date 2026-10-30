@@ -24,6 +24,18 @@ def load(name):
 
 
 class SeedSearchTests(unittest.TestCase):
+    def test_zero_target_root_preserves_seed_fallback_only_for_eligible_decks(self):
+        from ability_search import search
+        with self.assertRaises(RuntimeError) as caught:
+            search(dict(events=[dict(kind='activate_ability')]),
+                   lambda *a:(dict(error=112,event_index=0,native_code=0),{}),lambda *a:False)
+        self.assertTrue(caught.exception.search_report['explored_branches_exhausted'])
+        policy=load('seed_search_policy')
+        for key in ('skeleton-king','hunter'):
+            result=policy(dict(decks=[dict(cards=[dict(base_card_key=key)])]),'different')
+            self.assertTrue(result['search_needed'])
+        self.assertFalse(policy(dict(decks=[dict(cards=[dict(base_card_key='ice-wizard')])]),'different')['search_needed'])
+
     def test_plan_is_bounded_reproducible_int32_and_skips_original(self):
         plan=load('seed_plan')
         first=plan('a'*64,1784463263);second=plan('a'*64,1784463263)
@@ -71,7 +83,10 @@ class SeedSearchTests(unittest.TestCase):
         page={0:(2151,1630,0),1:(4824,2037,2146)}
         self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)},[(0,2)]),('exact',0))
         self.assertEqual(run(page,{0:(2000,1600,None),1:(4824,2037,2146)},[(0,2)]),('same_towers',181))
-        self.assertEqual(run(page,{0:(4824,None,2359),1:(4824,2144,2146)},[(0,1)])[0],'same_winner')
+        # Unlocated princess values use the minimum within-player pairing;
+        # a different arena side is not a different destroyed-tower count.
+        self.assertEqual(run(page,{0:(4824,None,2359),1:(4824,2144,2146)},[(0,1)]),('same_towers',3509))
+        self.assertEqual(run(page,{0:(4824,None,None),1:(4824,2037,2146)},[(0,1),(0,2)])[0],'same_winner')
         self.assertEqual(run(page,{0:(4824,1467,2278),1:(4824,None,1717)},[(1,1)])[0],'different')
         # A destroyed princess never counts the king as destroyed.
         self.assertEqual(run(page,{0:(4824,1630,None),1:(4824,2037,2146)},[(0,2)]),('same_towers',2673))

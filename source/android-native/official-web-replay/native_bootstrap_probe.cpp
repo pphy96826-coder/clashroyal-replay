@@ -103,8 +103,8 @@ bool consume(void* v,void* layout){
     p->json=reinterpret_cast<uintptr_t>(json);
     reinterpret_cast<void(*)(void*)>(b+0x16cb3c8)(string);
     if(!json){f[4]=1;return false;}
-    void* domain=malloc(0x240);if(!domain){f[4]=2;return false;}
-    p->domain=reinterpret_cast<uintptr_t>(domain);std::memset(domain,0,0x240);
+    void* domain=malloc(client_layout::active_domain.allocation_bytes);if(!domain){f[4]=2;return false;}
+    p->domain=reinterpret_cast<uintptr_t>(domain);std::memset(domain,0,client_layout::active_domain.allocation_bytes);
     reinterpret_cast<void*(*)(void*,int,void*,void*,int)>(b+0x1365bf0)(domain,1,
         reinterpret_cast<void*>(p->services),reinterpret_cast<void*>(b+0x1c75240),0);
     auto d=p->domain;f[5]=read<int>(d+0x20);
@@ -171,8 +171,8 @@ bool consume(void* v,void* layout){
     // Eight bytes per side: four hand indices followed by four queue indices.
     for(unsigned side=0;side<2;++side){
         auto root=read<uintptr_t>(battle+0xe0+side*8);
-        if(!readable(root,0x418)||read<int>(root+0x224)!=4||read<int>(root+0x234)!=4){f[4]=41;return release_loaded();}
-        auto hand=read<uintptr_t>(root+0x218),queue=read<uintptr_t>(root+0x228);
+        if(!readable(root,0x418)||read<int>(root+client_layout::active_deal.hand_count)!=4||read<int>(root+client_layout::active_deal.queue_count)!=4){f[4]=41;return release_loaded();}
+        auto hand=read<uintptr_t>(root+client_layout::active_deal.hand),queue=read<uintptr_t>(root+client_layout::active_deal.queue);
         if(!readable(hand,16)||!readable(queue,16)){f[4]=42;return release_loaded();}
         unsigned seen=0;uint64_t packed=0;
         for(unsigned i=0;i<8;++i){

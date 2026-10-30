@@ -24,6 +24,11 @@ def test_real_ambiguity_and_elixir_messages_keep_their_specific_causes():
     assert explanation('ability target ambiguous').startswith('技能所属单位无法唯一确定')
     assert explanation('溢出圣水与网页不一致：蓝方').startswith('溢出圣水与网页不一致')
 
+def test_zero_targets_are_distinguished_from_multiple_targets():
+    result=explanation('第67条技能在当前模拟分支中没有合法目标（适配器112）')
+    assert '没有合法目标' in result
+    assert '多个候选' not in result
+
 
 def test_normal_console_and_queued_ready_hint_share_the_same_version_message():
     java=(ROOT/'android-adaptation/app/src/local/royale/replay/android/ConsoleActions.java').read_text()

@@ -1,5 +1,7 @@
 # 官服 HTML 回放 · 纯安卓适配
 
+> 最新：[hotfix77 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261030-hotfix77) · [38.5.2 适配与实测范围](更新说明-hotfix77.md)。同签名覆盖安装、保留数据；原图文安装流程继续适用。Windows 翻译版请使用其独立发布包。
+
 > 最新补丁：[hotfix70 APK](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70) · [更新说明与验证范围](更新说明-hotfix70.md)。同签名覆盖更新、保留应用数据；下文 hotfix65 图文流程及完整资料包继续参考，APK 请用 hotfix70。已核验安卓1安装版本，未做新版整局实测。Windows 翻译版请继续使用其独立发布包。
 
 **[下载最新 hotfix70](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261023-hotfix70)** · [PDF 版教程](安卓适配图文教程.pdf) · [离线 HTML](安卓适配图文教程.html) · [最新更新说明](更新说明-hotfix70.md) · [非 Root 安卓与 iOS 方案](../docs/非Root安卓与iOS播放方案.md) · [← 返回仓库首页](../README.md)

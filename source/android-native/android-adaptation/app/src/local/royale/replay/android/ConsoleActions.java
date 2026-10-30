@@ -339,8 +339,8 @@ final class ConsoleActions {
             long attempts=state.optLong("seed_attempts",0);
             String match=pageMatch(state),tried=attempts>0?"已试 "+attempts+" 个随机种子，选取已完整执行的最接近结果"
                 :!state.optBoolean("seed_search_allowed",true)?"卡组无骷髅之王或猎人，保留原种子，未搜索其他种子":"保留原种子，未搜索其他种子";
-            String check=match.equals("same_towers")?"胜负和被摧毁的塔与网页一致，塔血合计相差 "+state.optLong("page_hp_difference",0)+"（"+tried+"）。"
-                :match.equals("same_winner")?"⚠ 胜负与网页一致，但被摧毁的塔不同（"+tried+"）。"
+            String check=match.equals("same_towers")?"胜负和毁塔数量与网页一致，自动配对后的塔血合计相差 "+state.optLong("page_hp_difference",0)+"（"+tried+"）。"
+                :match.equals("same_winner")?"⚠ 胜负与网页一致，但毁塔数量不同（"+tried+"）。"
                 :match.equals("different")?"⚠ 终局与网页不符（"+tried+"），过程与原局不同。"
                 :match.equals("unknown")?"终局有塔缺少网页数据或模拟记录，无法完整比对；未当作不一致。"
                 :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";

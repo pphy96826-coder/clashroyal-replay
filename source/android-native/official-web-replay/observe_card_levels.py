@@ -35,7 +35,12 @@ def main():
         return b''.join(pieces)
     def ptr(address):return struct.unpack('<Q',fixed(address,8))[0]&0x00ffffffffffffff
     root=ptr(s.base+0x1d34ae0);services=ptr(root+0x20);catalog=ptr(services+0x38)
-    if ptr(catalog)!=s.base+0x1c04150:raise ValueError('card catalog changed')
+    if not catalog:raise ValueError('游戏卡牌目录尚未加载，请完成登录并进入大厅后重新准备')
+    if ptr(catalog)!=s.base+0x1c04150:
+        from device_catalog_diagnostic import save
+        needed={c['base_data_id'] for d in source['decks'] for c in d['cards']}|{SPIRIT_EMPRESS_ID}
+        save(s,services,needed,a.output.with_name('catalog-update-diagnostic.json'))
+        raise ValueError('card catalog changed; read-only update evidence retained')
     entries=ptr(catalog+0xb8);count=struct.unpack('<i',fixed(catalog+0xc4,4))[0]
     if not 138<=count<=1024:raise ValueError('card catalog bounds changed')
     array=struct.unpack('<'+str(count)+'Q',fixed(entries,count*8))

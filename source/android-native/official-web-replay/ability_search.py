@@ -86,26 +86,36 @@ def final_tower_rows(source, preparation, report):
             elif not found and key != 'king' and king_fell: simulated, evidence = 0, 'king_fell'
             else: simulated, evidence = None, 'unknown'  # absent or ambiguous: never guessed
             page = oracle.get(key) if type(oracle.get(key)) is int else None
-            rows.append(dict(owner=owner, tower=key, x=spot[2], page=page, simulated=simulated, evidence=evidence, page_order='direct'))
+            rows.append(dict(owner=owner, source_side=deck.get('source_side'), tower=key, x=spot[2],
+                page=page, raw_page=page, page_tower_key=key, simulated=simulated,
+                evidence=evidence, page_order='direct'))
         _princess_order(rows[-2:])
+    for row in rows:
+        row['difference']=None if row['page'] is None or row['simulated'] is None else abs(row['page']-row['simulated'])
     return rows
 
 
 def _princess_order(pair):
-    """RoyaleAPI's princess0/princess1 order is not consistently left/right in arena
-    coordinates (seen both ways for the same side and orientation). Use the page's
-    two values in swapped order only on HP evidence: the swap must give more exact
-    matches of NONZERO HP than the page order. A destroyed (0) tower alone never
-    decides the side. The order used is recorded per tower."""
+    """Compare the page's UNLOCATED princess-HP pair, never invent left/right.
+
+    hp-popup provides two numbers, not arena coordinates. Minimum L1 pairing
+    compares these unordered values within ONE player only. It is NOT evidence
+    of a physical side: retain native x, original values and selected page keys,
+    explicitly mark the inferred pairing, and never invent missing/dead towers.
+    A tie keeps the original order deterministically, with ambiguity recorded.
+    """
     a, b = pair
+    for row in pair:
+        row.update(page_order_basis='unordered_page_hp',page_side_verified=False,
+                   page_pairing_inferred=True,page_pairing_ambiguous=None)
     if None in (a['page'], b['page'], a['simulated'], b['simulated']): return
-    def evidence(first, second):
-        return (a['simulated'] == first != 0) + (b['simulated'] == second != 0)
-    def exact(first, second):
-        return (a['simulated'] == first) + (b['simulated'] == second)
-    if (evidence(b['page'], a['page']) > evidence(a['page'], b['page'])
-            and exact(b['page'], a['page']) >= exact(a['page'], b['page'])):
+    direct=abs(a['simulated']-a['page'])+abs(b['simulated']-b['page'])
+    swapped=abs(a['simulated']-b['page'])+abs(b['simulated']-a['page'])
+    for row in pair:row.update(page_pairing_ambiguous=direct==swapped,
+        page_pair_cost_direct=direct,page_pair_cost_swapped=swapped)
+    if swapped < direct:
         a['page'], b['page'] = b['page'], a['page']
+        a['page_tower_key'], b['page_tower_key'] = b['page_tower_key'], a['page_tower_key']
         a['page_order'] = b['page_order'] = 'swapped'
 
 
@@ -168,7 +178,7 @@ def elixir_rows(source, report):
         page = float(page) if type(page) in (int, float) else None
         entry = native[owner] if isinstance(native, list) and len(native) == 2 and isinstance(native[owner], dict) else None
         simulated = entry['leaked'] / ELIXIR_SCALE if entry and type(entry.get('leaked')) is int else None
-        row = dict(owner=owner, page=page, simulated=simulated, measured_at=at)
+        row = dict(owner=owner, source_side=deck.get('source_side'), page=page, simulated=simulated, measured_at=at)
         if entry:
             row.update(spent=entry.get('spent', 0) / ELIXIR_SCALE, gained=entry.get('gained', 0) / ELIXIR_SCALE,
                        final=entry.get('current', 0) / ELIXIR_SCALE)
@@ -394,6 +404,15 @@ def search(preparation, execute, matches, *, max_attempts=256, cancelled=lambda:
             for v in range(report['native_code']):
                 # Deeper (more decided) branches first among equal bounds, then lower ordinal.
                 heapq.heappush(pending,(child_lower,-len(choices)-1,order,dict(choices,**{str(index):v}),observed));order+=1
+        elif report.get('error')==112 and type(report.get('native_code')) is int and report['native_code']==0:
+            index=report.get('event_index')
+            if type(index) is not int or not 0<=index<len(candidate['events']) or candidate['events'][index]['kind']!='activate_ability':
+                raise ValueError('unavailable target report is not a source ability')
+            # No legal unit at this tick kills this trajectory, not the whole
+            # replay. Preserve siblings and an exhausted search receipt so the
+            # caller can try alternate seeds under its source-deck policy.
+            row['ability_target_unavailable']=True
+            continue
         elif not ambiguous:
             raise RuntimeError(source_failure(report))
     if best is not None:return closest_result(False)

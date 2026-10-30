@@ -11,10 +11,7 @@ JAVA = ROOT/'app/src/local/royale/replay/android'
 
 class BrowserBridgeTests(unittest.TestCase):
     def test_pure_java_decoder_and_adversarial_inputs(self):
-        jdk = Path(__import__('os').environ.get('JAVA_HOME','/unconfigured-jdk'))/'bin'
         javac, java = shutil.which('javac'), shutil.which('java')
-        if (jdk/'javac').is_file():
-            javac, java = str(jdk/'javac'), str(jdk/'java')
         if not javac or not java:
             self.skipTest('JDK is required for executable transport tests')
         with tempfile.TemporaryDirectory() as directory:
@@ -44,7 +41,10 @@ class BrowserBridgeTests(unittest.TestCase):
         self.assertEqual(activity.find('intent-filter/data').attrib,
                          {ns+'scheme': 'royalereplay', ns+'host': 'import', ns+'path': '/v1'})
         exported = [a.get(ns+'name') for a in app.findall('activity') if a.get(ns+'exported') == 'true']
-        self.assertEqual(sorted(exported), ['.BrowserBridgeActivity', '.MainActivity'])
+        self.assertEqual(sorted(exported), ['.BrowserBridgeActivity', '.MainActivity', '.WebWorkerActivity'])
+        web = next(a for a in app.findall('activity') if a.get(ns+'name') == '.WebWorkerActivity')
+        self.assertEqual(web.get(ns+'permission'), 'android.permission.DUMP')
+        self.assertIsNone(web.find('intent-filter'))  # No browser-accessible unattended URL.
         bridge = (JAVA/'BrowserBridgeActivity.java').read_text()
         self.assertIn('FloatingConsole.offer(BrowserBridgeActivity.this,BrowserImport.decode(link))', bridge)
         for forbidden in ('getStringExtra(', 'getDoubleExtra(', 'getBooleanExtra(', 'PlaybackService', 'NativePython.', 'ConsoleActions', 'ReplayQueue', 'Runtime.getRuntime', 'su'):

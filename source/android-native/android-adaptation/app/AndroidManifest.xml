@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.royale.replay.android" android:versionCode="2026102370" android:versionName="2026.10.23-hotfix70">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.royale.replay.android" android:versionCode="2026103077" android:versionName="2026.10.30-hotfix77">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.INTERNET" />
@@ -7,6 +7,7 @@
   <application android:label="安卓回放控制台" android:allowBackup="false" android:debuggable="true" android:extractNativeLibs="true" android:theme="@android:style/Theme.Holo.Light.NoActionBar">
     <service android:name=".PlaybackService" android:exported="false" />
     <service android:name=".FloatingConsole" android:exported="false" />
+    <activity android:name=".WebWorkerActivity" android:exported="true" android:permission="android.permission.DUMP" android:taskAffinity="" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     <activity android:name=".QueueImportActivity" android:exported="false" android:taskAffinity="" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     <activity android:name=".BrowserActivity" android:exported="false" />
     <activity android:name=".BrowserImportActivity" android:exported="false" />

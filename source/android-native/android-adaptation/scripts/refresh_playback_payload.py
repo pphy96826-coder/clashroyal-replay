@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import zipfile
+from runtime_variants import expand
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -28,16 +29,22 @@ def main():
              'app/proc_maps.py':ROOT/'device/proc_maps.py',
              'app/device_session.py':ROOT/'device/device_session.py',
              'app/device_metadata.py':ROOT/'device/device_metadata.py',
+             'app/device_catalog_diagnostic.py':ROOT/'device/device_catalog_diagnostic.py',
+             'app/device_variant.py':ROOT/'device/device_variant.py',
              'app/device_import.py':ROOT/'device/device_import.py',
              'app/native-code-contract.json':ROOT/'profiles/native-code-contract.json'}
-    project=ROOT.parent/'official-web-replay'
-    for name in ('align_native_deal.py','tower_profiles.py','bootstrap_input.py','prepare_native_replay.py','source_completion.py','scene_input.py','run_scene_gate.py','finalize_replay.py','failure_recovery.py','ability_search.py','diagnostic_prefix.py','signal_policy.py','import_replay.py','observe_card_levels.py'):
+    # Edit the current verified bundle's owned sources, not an older desktop
+    # snapshot. The former root location is absent in this checkout.
+    project=ROOT/'runtime-source/official-web-replay'
+    for name in ('align_native_deal.py','tower_profiles.py','bootstrap_input.py','prepare_native_replay.py','source_completion.py','scene_input.py','run_scene_gate.py','finalize_replay.py','failure_recovery.py','ability_search.py','diagnostic_prefix.py','signal_policy.py','import_replay.py','observe_card_levels.py','observe_tower_catalog.py'):
         updates['app/'+name]=project/name
-    for name in ('native_bootstrap_probe.cpp','native_scene_probe.cpp','native_tower_check.h','source_execution.h'):
+    for name in ('native_bootstrap_probe.cpp','native_scene_probe.cpp','native_tower_check.h','source_execution.h','client_layout.h'):
         updates['app/native-src/official-web-replay/'+name]=project/name
     for name,path in updates.items():
-        if name not in manifest and name not in ('app/device_loader.py','app/failure_recovery.py','app/ability_search.py','app/diagnostic_prefix.py','app/signal_policy.py'):raise ValueError('unexpected update path: '+name)
+        if name not in manifest and name not in ('app/device_loader.py','app/device_variant.py','app/device_catalog_diagnostic.py','app/failure_recovery.py','app/ability_search.py','app/diagnostic_prefix.py','app/signal_policy.py','app/native-src/official-web-replay/client_layout.h'):raise ValueError('unexpected update path: '+name)
         contents[name]=path.read_bytes();manifest[name]=hashlib.sha256(contents[name]).hexdigest()
+    contents=expand(contents,ROOT)
+    manifest={name:hashlib.sha256(raw).hexdigest() for name,raw in contents.items() if name!='runtime-files.json'}
     contents['runtime-files.json']=json.dumps(manifest,sort_keys=True).encode()
     temporary=package.with_suffix('.new.zip')
     with zipfile.ZipFile(temporary,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:

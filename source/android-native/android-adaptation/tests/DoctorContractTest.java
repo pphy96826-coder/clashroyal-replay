@@ -17,7 +17,7 @@ public final class DoctorContractTest {
         Path temporary=Files.createTempFile("replay-doctor-", ".zip");
         try{
             try(ZipOutputStream zip=new ZipOutputStream(Files.newOutputStream(temporary))){zip.putNextEntry(new ZipEntry("lib/arm64-v8a/libg.so"));zip.write(new byte[]{1,2,3});zip.closeEntry();}
-            boolean rejected=false;try{StandaloneDoctor.libraryHash(temporary.toFile());}catch(IOException e){rejected=true;}if(!rejected)throw new AssertionError("wrong pinned library size accepted");tests++;
+            boolean rejected=false;try{StandaloneDoctor.requireSupported(temporary.toFile());}catch(IOException e){rejected=true;}if(!rejected)throw new AssertionError("wrong pinned library size accepted");tests++;
         }finally{Files.deleteIfExists(temporary);}
         System.out.println("PASS "+tests+" standalone doctor contract checks; no root invoked");
     }

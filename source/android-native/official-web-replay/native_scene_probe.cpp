@@ -126,7 +126,7 @@ void local_frame(void* object,float elapsed){
     // BEFORE the scene/HUD callback. Without it the native battle progresses
     // but the arena and unit geometry remain black. Keep the original native
     // handle lookup, delta, and fixed-tick interpolation arguments.
-    auto handle=read<int>(controller+0x2b0);
+    auto handle=read<int>(controller+client_layout::active_controller.presentation_handle);
     if(handle<1){p->driver_error=12;return;}
     auto registry=reinterpret_cast<void*(*)()>(p->base+0x8d9460)();
     auto presentation=reinterpret_cast<void*(*)(void*,int)>(p->base+0x8d9738)(registry,handle);
