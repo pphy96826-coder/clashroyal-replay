@@ -34,4 +34,5 @@
   <instrumentation android:name=".LocalBuildTests" android:targetPackage="local.royale.replay.android" android:label="Phone real replay component compilation" />
   <instrumentation android:name=".LocalPlaybackTests" android:targetPackage="local.royale.replay.android" android:label="Authorized phone native replay pipeline" />
   <instrumentation android:name=".LocalRecoveryTests" android:targetPackage="local.royale.replay.android" android:label="Observe original completed initialization, never republish" />
+  <instrumentation android:name=".ForegroundStartupTests" android:targetPackage="local.royale.replay.android" android:label="Foreground service watchdog regression, no native playback" />
 </manifest>

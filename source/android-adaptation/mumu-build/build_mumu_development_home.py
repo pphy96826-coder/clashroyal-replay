@@ -39,6 +39,13 @@ for p in compiler.rglob('*'):
 native_runtime=root/'work/android-native-runtime/selected'
 for p in native_runtime.rglob('*'):
     if p.is_file():files['app/mumu-support/runtime/'+p.relative_to(native_runtime).as_posix()]=p.read_bytes()
+for name in ('client_layout.h','cache_lease.h','native_scene_probe.cpp'):
+ files['app/native-src/official-web-replay/'+name]=(root/'work/android-mumu-adaptation/source/windows-adaptation/project/official-web-replay'/name).read_bytes()
+files['app/device_catalog_diagnostic.py']=(device/'device_catalog_diagnostic.py').read_bytes()
+files['app/device_variant.py']=(device/'device_variant.py').read_bytes()
+import importlib.util
+spec=importlib.util.spec_from_file_location('runtime_variants',device.parent/'scripts/runtime_variants.py');variants=importlib.util.module_from_spec(spec);spec.loader.exec_module(variants)
+files=variants.expand(files,device.parent)
 manifest={n:hashlib.sha256(b).hexdigest() for n,b in files.items()};files['runtime-files.json']=json.dumps(manifest,sort_keys=True).encode()
 archive=out/'mumu-development-python.zip'
 with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=3) as z:

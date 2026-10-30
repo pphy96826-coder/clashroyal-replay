@@ -68,7 +68,7 @@ class SeedSearchTests(unittest.TestCase):
         # A fallen king takes its princess towers with it.
         self.assertEqual(run({0:(0,0,0),1:(4824,2037,2146)},{0:(0,None,None),1:(4824,2037,2146)}),('exact',0))
         # Absent without destruction evidence is unknown, never a guessed match.
-        self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)}),('different',None))
+        self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)}),('unknown',None))
 
     def test_ready_message_never_claims_a_match_that_was_not_found(self):
         ready=SOURCE[SOURCE.index("if diagnostic is not None:ready_message="):SOURCE.index("status('ready_to_open',ready_message)")]

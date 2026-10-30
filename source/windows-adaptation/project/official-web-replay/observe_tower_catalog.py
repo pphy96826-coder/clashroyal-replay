@@ -67,11 +67,23 @@ def observe(s):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--observation',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
-    identity=json.loads(args.observation.read_text(encoding="utf-8"))['identity'];s=ReadOnlySession(identity)
-    rows=observe(s)
+    identity=json.loads(args.observation.read_text())['identity'];s=ReadOnlySession(identity)
+    try:
+        rows=observe(s)
+    except ValueError:
+        from device_catalog_diagnostic import capture_towers
+        try:
+            def ptr(address):return struct.unpack('<Q',s.read(address,8))[0]&MASK
+            root=ptr(s.base+0x1d34ae0);services=ptr(root+0x20)
+            evidence=capture_towers(s,services,{row['support_id'] for row in TOWERS.values()})
+        except (ValueError,OSError,struct.error) as error:
+            evidence=dict(state='observation_incomplete',error=str(error)[:300],native_calls=False,
+                          game_memory_written=False,compatibility_approved=False)
+        with args.output.with_name('tower-update-diagnostic.json').open('x') as stream:json.dump(evidence,stream,indent=2)
+        raise
     result=dict(identity=identity,towers=rows,native_calls=False,game_memory_written=False,
                 network_settings_changed=False,observer_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
-    with args.output.open('x',encoding='utf-8') as stream:json.dump(result,stream,ensure_ascii=False,indent=2)
+    with args.output.open('x') as stream:json.dump(result,stream,ensure_ascii=False,indent=2)
     print(json.dumps(rows,ensure_ascii=False))
 
 

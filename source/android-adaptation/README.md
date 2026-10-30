@@ -1,3 +1,5 @@
+> Windows 最新：[hotfix77 / dev60](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-windows-hotfix77-dev60-20261031)，支持已审计 38.4.2 / 38.5.2；[本机验证记录](../../docs/mumu-android/hotfix77-windows.md)。下文旧版本说明保留作历史参考。
+
 > 当前发布：MuMu Hotfix4 / dev54（预发布）。合格候选池、每种子首轮最多 2 组、交错每轮 1 组精修；当前范围见[修复说明](../../docs/mumu-android/修复说明.md)。344 项主机、72 项设备检查通过，dev54 整场尚未重测。
 
 > MuMu 用户请先读 [新版图文教程](../../docs/mumu-android/安装教程.md)。新版包含原生 x86 工具、导入自动准备与“停止匹配，播放当前最优”；安装包使用 local.royale.replay.mumu。下面保留历史说明。

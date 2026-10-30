@@ -1,3 +1,4 @@
+#include "client_layout.h"
 #pragma once
 #include <string>
 #include <chrono>
@@ -176,7 +177,7 @@ inline bool native_text(const Calls& c,uintptr_t p,std::string& out){
 inline bool copy_json(const Calls& c,uintptr_t value,std::string& out,unsigned depth=0){
     if(depth>3||!c.readable(value,24))return false;
     auto table=field<uintptr_t>(value);
-    if(table<c.base||table>=c.base+0x1d40000||!c.readable(table,0x18))return false;
+    if(!client_layout::contains_vtable(c.base,table,0x18,client_layout::active_vtables)||!c.readable(table,0x18))return false;
     int kind=reinterpret_cast<int(*)(void*)>(field<uintptr_t>(table+0x10))(reinterpret_cast<void*>(value));
     if(kind==3){
         if(field<unsigned char>(value+8))return false; // Reject float representation.
@@ -275,13 +276,14 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
                 if(c.readable(blue,0x418)&&c.readable(red,0x418)){
                     if(result.window_first<0)result.window_first=before+1;
                     if(result.window_first+int(result.window_leaked.size())==before+1)
-                        result.window_leaked.emplace_back(field<int>(blue+0x350),field<int>(red+0x350));
+                        result.window_leaked.emplace_back(field<int>(blue+client_layout::active_avatar.leaked),field<int>(red+client_layout::active_avatar.leaked));
                 }
             }
             if(result.checkpoint_tick<0&&before+1==elixir_checkpoint){
                 for(unsigned side=0;side<2;++side){
                     auto root=field<uintptr_t>(battle+0xe0+side*8);if(!c.readable(root,0x418))break;
-                    for(unsigned k=0;k<4;++k)result.checkpoint_elixir[side][k]=field<int>(root+(k?0x344+k*4:0x300));
+                    const auto accounting=client_layout::elixir_snapshot(root,client_layout::active_avatar);
+                    for(unsigned k=0;k<4;++k)result.checkpoint_elixir[side][k]=accounting[k];
                     if(side)result.checkpoint_tick=before+1;
                 }
             }
@@ -301,7 +303,7 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
         auto root=field<uintptr_t>(battle+0xe0+event.owner*8);
         if(!c.readable(root,0x418)){result.error=105;break;}
         result.available=reinterpret_cast<int(*)(void*,int)>(b+0x120c810)(reinterpret_cast<void*>(root),1);
-        result.raw_elixir=field<int>(root+0x300);
+        result.raw_elixir=field<int>(root+client_layout::active_avatar.current);
         void* command=nullptr;int slot=-1;unsigned packed=0;std::string ability_info;
         if(event.kind==153){
             // Source HTML identifies the card, not a private slot. The plain
@@ -338,8 +340,8 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
                 if(!c.readable(object,0x88)||field<int>(object+0x78)!=event.owner)continue;
                 auto definition=field<uintptr_t>(object+0x48);
                 if(!c.readable(definition,0x728)||!field<uintptr_t>(definition+0x720))continue;
-                auto table=field<uintptr_t>(object);if(!c.readable(table,0x198))continue;
-                if(!reinterpret_cast<int(*)(void*)>(field<uintptr_t>(table+0x190))(reinterpret_cast<void*>(object)))continue;
+                auto table=field<uintptr_t>(object);if(!c.readable(table,client_layout::active_unit.table_extent))continue;
+                if(!reinterpret_cast<int(*)(void*)>(client_layout::ability_ready_method(table,client_layout::active_unit))(reinterpret_cast<void*>(object)))continue;
                 if(reinterpret_cast<int(*)(void*,void*,void*)>(b+0x120f614)(reinterpret_cast<void*>(root),reinterpret_cast<void*>(d),reinterpret_cast<void*>(object)))continue;
                 actor=object;++eligible;actors.push_back(object);
             }
@@ -408,8 +410,9 @@ inline void run(const Calls& original,Result& result,uintptr_t d,uintptr_t battl
         if(side)elixir+=',';
         auto root=field<uintptr_t>(battle+0xe0+side*8);
         if(battle_state=="null"||!c.readable(root,0x418)){elixir+="null";continue;}
-        elixir+="{\"current\":"+std::to_string(field<int>(root+0x300))+",\"spent\":"+std::to_string(field<int>(root+0x348))+
-                ",\"gained\":"+std::to_string(field<int>(root+0x34c))+",\"leaked\":"+std::to_string(field<int>(root+0x350))+'}';
+        const auto accounting=client_layout::elixir_snapshot(root,client_layout::active_avatar);
+        elixir+="{\"current\":"+std::to_string(accounting[0])+",\"spent\":"+std::to_string(accounting[1])+
+                ",\"gained\":"+std::to_string(accounting[2])+",\"leaked\":"+std::to_string(accounting[3])+'}';
     }
     elixir+=']';
     std::string checkpoint="null";

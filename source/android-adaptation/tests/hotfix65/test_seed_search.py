@@ -84,7 +84,7 @@ class SeedSearchTests(unittest.TestCase):
         # A fallen king takes its princess towers with it.
         self.assertEqual(run({0:(0,0,0),1:(4824,2037,2146)},{0:(0,None,None),1:(4824,2037,2146)}),('exact',0))
         # Absent without destruction evidence is unknown, never a guessed match.
-        self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)}),('different',None))
+        self.assertEqual(run(page,{0:(2151,1630,None),1:(4824,2037,2146)}),('unknown',None))
 
     def test_end_time_outweighs_tower_hp(self):
         import sys,types
@@ -108,7 +108,7 @@ class SeedSearchTests(unittest.TestCase):
         self.assertLess(run(946,267*20+4)[1],run(1016,267*20+46)[1])
         self.assertLess(run(1500,267*20)[1],run(0,267*20+40)[1])
         # Unknown page duration or unfinished battle: HP only, as before.
-        self.assertEqual(cmp(dict(source,source_duration_seconds=None),{},dict(finished=1,tick=9999,battle_state=dict(towers=[]))),('different',None))
+        self.assertEqual(cmp(dict(source,source_duration_seconds=None),{},dict(finished=1,tick=9999,battle_state=dict(towers=[]))),('unknown',None))
         from ability_search import terminal_time,terminal_hp_matches
         self.assertEqual(terminal_time(source,dict(finished=0,tick=5000))['excess_ticks'],None)
         self.assertEqual(terminal_time(source,dict(finished=1,tick=267*20+46))['excess_ticks'],26)
@@ -719,3 +719,4 @@ class ReproducibilityTests(unittest.TestCase):
         block=gate[gate.index("if result['publication']==0:"):gate.index("if result['publication']!=1:raise")]
         self.assertLess(block.index("call('release')"),block.index("raise RuntimeError('publication refused"))
         self.assertIn("result['publication_refused']=True",block)
+

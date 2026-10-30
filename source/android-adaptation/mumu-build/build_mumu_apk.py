@@ -57,6 +57,7 @@ with zipfile.ZipFile(unsigned,'a') as apk,zipfile.ZipFile(root/'work/android-hot
     for member in original.namelist():
         if not member.startswith('assets/') or member in ('assets/python-runtime.zip','assets/python-runtime.sha256'):continue
         with original.open(member) as src,apk.open(member,'w') as dest:shutil.copyfileobj(src,dest)
+    apk.write(source/'app/assets/client-relocation.tsv','assets/client-relocation.tsv')
     apk.write(bundle,'assets/python-runtime.zip',compress_type=zipfile.ZIP_STORED)
     apk.writestr('assets/python-runtime.sha256',meta['sha256'])
     for file in dex.glob('classes*.dex'):apk.write(file,file.name,compress_type=zipfile.ZIP_STORED)

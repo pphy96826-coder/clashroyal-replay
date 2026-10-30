@@ -13,7 +13,8 @@ public final class DiagnosticExport {
     static final String VERSION="2026.10.23-mumu-hotfix70-port";
     private static final int MAX_FILE=4*1024*1024,MAX_TOTAL=16*1024*1024,MAX_FILES=256;
     private static final Set<String> GLOBAL=new HashSet<String>(Arrays.asList(
-        "phone-active.json","phone-service-state.json","local-import-status.json",
+        "client-compatibility.json","phone-active.json","phone-service-state.json","local-import-status.json",
+        "playback-service-startup.jsonl","playback-service-startup.previous.jsonl",
         "local-preparation-status.json","local-preparation-process.json","local-build-status.json","local-tools-status.json"));
     private static final Set<String> TASK=new HashSet<String>(Arrays.asList(
         "status.json","error.txt","native-entry.json","ability-search.json","failure-recovery.json",
@@ -38,7 +39,7 @@ public final class DiagnosticExport {
         if(children.length>4096)throw new IOException("task directory exceeds enumeration limit");
         for(File file:children)if(taskName(file.getName()))selected.put("task/"+file.getName(),file);
         File preparation=new File(task,"native-preparation");
-        for(String name:new String[]{"result.json","observation.json","levels.json","towers.json","preparation.json","preparation-delayed.json","maps-read-diagnostic.json"})
+        for(String name:new String[]{"result.json","observation.json","levels.json","towers.json","preparation.json","preparation-delayed.json","maps-read-diagnostic.json","catalog-update-diagnostic.json","tower-update-diagnostic.json"})
             selected.put("task/native-preparation/"+name,new File(preparation,name));
         // Calibration is bounded to 12 attempts by the runtime, not a recursive scan.
         for(int i=0;i<12;i++)selected.put("task/native-preparation/preparation-calibrated-"+i+".json",new File(preparation,"preparation-calibrated-"+i+".json"));

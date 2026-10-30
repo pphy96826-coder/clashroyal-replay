@@ -9,6 +9,8 @@ def source_failure(report):
             floor.get('native_tick',0)/20,floor.get('owner','?'),floor.get('tower_slot','?'),floor.get('actual_hp','?'),floor.get('expected_min','?'))
     if report.get('error')==125:return '技能身份或六塔观察无法验证；本候选不接受'
     if report.get('error')==112:
+        if type(report.get('native_code')) is int and report['native_code']==0:
+            return '第%d条技能在当前模拟分支中没有合法目标（适配器112）；该分支未完成，未跳过技能'%(report.get('event_index',-1)+1)
         return '第%d条技能的合法目标数为%d，技能目标未唯一确定（适配器112）'%(report.get('event_index',-1)+1,report.get('native_code',0))
     failed=next((row for row in report.get('dispatch',[]) if row.get('code',-1)>0),None)
     if failed:

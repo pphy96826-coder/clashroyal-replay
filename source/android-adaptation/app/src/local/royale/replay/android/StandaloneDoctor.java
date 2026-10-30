@@ -12,6 +12,8 @@ import org.json.JSONObject;
 public final class StandaloneDoctor {
     public static final String GAME="com.tencent.tmgp.supercell.clashroyale";
     public static final String AUDITED_SHA="c6b2482a2f1fbd2e15c99df7fb18ba3d5596b77b3a81930d3638241a3c37fe55";
+    public static final String AUDITED_3852_SHA="0849d86b8a3689589e81fa2c50173e92f2ebf5fa0984c36ed4b448723d833fe2";
+    static boolean supports(String hash){return AUDITED_SHA.equals(hash)||AUDITED_3852_SHA.equals(hash);}
     static final class Output {final int code;final String text;Output(int c,String t){code=c;text=t;}}
     static Output root(String fixedCommand)throws Exception {
         return root(fixedCommand,25);
@@ -30,18 +32,34 @@ public final class StandaloneDoctor {
     static String libraryHash(File apk)throws Exception {
         ZipFile zip=new ZipFile(apk);
         try{ZipEntry entry=zip.getEntry("lib/arm64-v8a/libg.so");
-            if(entry==null||entry.getSize()!=30559184L)throw new IOException("客户端 ARM64 库大小不匹配，拒绝启用运行时");
+            if(entry==null||entry.getSize()<64L||entry.getSize()>128L*1024*1024)throw new IOException("客户端 ARM64 库缺失或超出读取限制");
             MessageDigest hash=MessageDigest.getInstance("SHA-256");InputStream in=zip.getInputStream(entry);long total=0;
-            try{byte[] buffer=new byte[32768];int n;while((n=in.read(buffer))!=-1){total+=n;if(total>30559184L)throw new IOException("客户端库超出已审计大小");hash.update(buffer,0,n);}}finally{in.close();}
-            if(total!=30559184L)throw new IOException("客户端库读取不完整");
+            try{byte[] buffer=new byte[32768];int n;while((n=in.read(buffer))!=-1){total+=n;if(total>128L*1024*1024)throw new IOException("客户端库超出读取限制");hash.update(buffer,0,n);}}finally{in.close();}
+            if(total!=entry.getSize())throw new IOException("客户端库读取不完整");
             StringBuilder result=new StringBuilder();for(byte v:hash.digest())result.append(String.format(Locale.ROOT,"%02x",v&255));return result.toString();
         }finally{zip.close();}
+    }
+    /** Re-evaluate the installed APK every time; an APK update never inherits an old approval. */
+    public static JSONObject compatibility(File apk)throws Exception {
+        String hash=libraryHash(apk);boolean supported=supports(hash);
+        ZipFile zip=new ZipFile(apk);long bytes;
+        try{bytes=zip.getEntry("lib/arm64-v8a/libg.so").getSize();}finally{zip.close();}
+        return new JSONObject().put("schema","royale-replay.client-compatibility.v1")
+            .put("library_sha256",hash).put("library_bytes",bytes)
+            .put("supported",supported).put("adaptation_required",!supported)
+            .put("native_calls",false).put("game_apk_changed",false)
+            .put("message",supported?"客户端引擎已支持，将为当前进程重新建立运行环境。":
+                "检测到客户端更新，当前原生接口尚未验证（库 SHA256："+hash.substring(0,12)+"）。需要检查调用入口和对象字段；原回放保留，不沿用旧地址重试。");
+    }
+    public static void requireSupported(File apk)throws Exception {
+        JSONObject report=compatibility(apk);
+        if(!report.optBoolean("supported",false))throw new IOException(report.getString("message"));
     }
     public static JSONObject inspect(File apk)throws Exception {
         JSONObject report=new JSONObject().put("schema","royale-replay.android-standalone-doctor.v1")
             .put("check_execution_location","android").put("desktop_backend_used",false).put("native_calls",false).put("debugger_attached",false)
             .put("network_settings_changed",false).put("game_apk_changed",false).put("standalone_playback_ready",false);
-        String hash=libraryHash(apk);boolean pinned=AUDITED_SHA.equals(hash);
+        String hash=libraryHash(apk);boolean pinned=supports(hash);
         report.put("library_sha256",hash).put("audited_library_matches",pinned);
         if(!pinned)return report.put("message","客户端库不匹配，未请求 root 或执行原生操作");
         Output who=root("id -u");boolean rootReady=who.code==0&&who.text.equals("0");

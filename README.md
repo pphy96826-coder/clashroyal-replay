@@ -2,18 +2,24 @@
 
 把 RoyaleAPI 完整 Replay 详情页的 HTML 转成指令，在已验证版本（纯 ARM64：38.4.2 / 38.5.2）的腾讯安卓客户端里用游戏自己的战斗引擎重新跑一遍。当前所有最新版本均采用**控制台、游戏、浏览器运行在同一个安卓环境内**的架构。区别在于 APK 的架构适配：**Windows + MuMu** 因架构与翻译运行时不同，需要使用单独翻译适配的回放控制台 APK；**Mac + MuMu 模拟器 Pro、已 Root 的安卓手机、非 Root 安卓手机中的虚拟大师**这三种方案可共用同一个回放控制台 APK。
 
-## 最新：hotfix77 · 腾讯 38.5.2 适配
+## Windows 最新：hotfix77 / dev60 · 38.5.2
+
+[下载 Windows 专用 APK、源码和校验清单](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-windows-hotfix77-dev60-20261031) · [更新与实测说明](docs/mumu-android/hotfix77-windows.md)
+
+已在本机 Windows + MuMu / 腾讯 38.5.2 完整验证一场 43 条操作回放：原生执行、JSON 往返、画面播放到终局及自动刷新返回通过；六塔血差 0，终局差 0.05 秒，双方溢出圣水严格一致。361 项主机检查及 82 项控制台检查通过。保留 38.4.2 适配、Windows 搜索策略及 issue #1 前台服务启动修复；其他主机和卡组仍需各自验证。
+
+## 纯安卓最新：hotfix77 · 腾讯 38.5.2 适配
 
 [下载 APK 与校验和](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261030-hotfix77) · [更新说明和实测范围](android/更新说明-hotfix77.md)
 
-按完整客户端库哈希自动选择内置的 38.4.2 / 38.5.2 适配，每次重建当前进程绑定。Mac + MuMu Pro 已完成一场 63 条操作的整局验证：原生执行、JSON 往返、实际画面均通过，六塔终局血量差为 0（含已毁塔）。保留技能与种子搜索；未知未来版本仍需验证接口。Windows 使用独立翻译版，本次没有宣称其已支持 38.5.2。
+按完整客户端库哈希自动选择内置的 38.4.2 / 38.5.2 适配，每次重建当前进程绑定。Mac + MuMu Pro 已完成一场 63 条操作的整局验证：原生执行、JSON 往返、实际画面均通过，六塔终局血量差为 0（含已毁塔）。保留技能与种子搜索；未知未来版本仍需验证接口。Windows 现有独立的 hotfix77 翻译适配，参见上方 Windows 发布和验收范围。
 
 ## 选择你的平台
 
 | 平台 | 安装教程 | 下载 | 源码文件夹 |
 | --- | --- | --- | --- |
 | **Mac**（Apple Silicon，MuMu 模拟器 Pro） | [纯安卓适配教程 · 第 3 节](android/README.md) | [hotfix77](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261030-hotfix77) | [`source/android-native/`](source/android-native/README.md) |
-| **Windows**（MuMu 6.6.4.0） | [Windows + MuMu 一体版教程](docs/mumu-android/安装教程.md) | [MuMu hotfix4（预发布）](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-android-20261023-hotfix4) | [`source/android-adaptation/`](source/android-adaptation/README.md)（共用模块在 `source/windows-adaptation/project/`） |
+| **Windows**（MuMu，独立翻译版） | [Windows + MuMu 一体版教程](docs/mumu-android/安装教程.md) | [MuMu hotfix77 / dev60](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/mumu-windows-hotfix77-dev60-20261031) | [`source/android-adaptation/`](source/android-adaptation/README.md)（共用模块在 `source/windows-adaptation/project/`） |
 | **已 Root 的安卓手机** | [纯安卓适配教程 · 第 4 节](android/README.md) | [hotfix77](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261030-hotfix77) | [`source/android-native/`](source/android-native/README.md) |
 | **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix77](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261030-hotfix77) | [`source/android-native/`](source/android-native/README.md) |
 | iPhone / iPad | 没有本机方案，只能远程观看：[可能的播放方法](docs/非Root安卓与iOS播放方案.md) | — | — |

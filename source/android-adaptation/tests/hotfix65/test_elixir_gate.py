@@ -287,7 +287,10 @@ class ElixirGateRunnerTests(unittest.TestCase):
 
     def test_native_reports_engine_elixir_totals(self):
         header=(SHARED/'source_execution.h').read_text()
-        for offset in ('root+0x348','root+0x34c','root+0x350','ability+0xb4'):self.assertIn(offset,header)
+        for offset in ('client_layout::elixir_snapshot','client_layout::active_avatar.leaked','ability+0xb4'):self.assertIn(offset,header)
+        layout=(SHARED/'client_layout.h').read_text()
+        self.assertIn('avatar_3842{0x300,0x348,0x34c,0x350}',layout)
+        self.assertIn('avatar_3852{0x308,0x350,0x354,0x358}',layout)
         self.assertIn('",\\"elixir\\":"+elixir+',header)
 
 

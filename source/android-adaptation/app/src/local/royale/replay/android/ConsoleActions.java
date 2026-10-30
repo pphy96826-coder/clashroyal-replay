@@ -260,8 +260,8 @@ final class ConsoleActions {
         boolean wanted=armed.equals(playWhenReady);
         if(phase.equals("ready_to_open")){
             String match=pageMatch(state),tried="已试 "+state.optLong("seed_attempts",0)+" 个随机种子";
-            String check=match.equals("same_towers")?"胜负和被摧毁的塔与网页一致，塔血合计相差 "+state.optLong("page_hp_difference",0)+"（"+tried+"，选最接近的）。"
-                :match.equals("same_winner")?"⚠ 胜负与网页一致，但被摧毁的塔不同（"+tried+"）。"
+            String check=match.equals("same_towers")?"胜负和毁塔数量与网页一致，自动配对后的塔血合计相差 "+state.optLong("page_hp_difference",0)+"（"+tried+"，选最接近的）。"
+                :match.equals("same_winner")?"⚠ 胜负与网页一致，但毁塔数量不同（"+tried+"）。"
                 :match.equals("different")?"⚠ 终局与网页不符（"+tried+"），过程与原局不同。"
                 :state.optBoolean("random_seed_inferred",false)?"换用随机种子后终局塔血与网页完全一致。":"终局塔血与网页完全一致。";
             String versionHint=(match.equals("same_towers")||match.equals("same_winner")||match.equals("different"))

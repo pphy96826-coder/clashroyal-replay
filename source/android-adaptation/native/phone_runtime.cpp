@@ -64,19 +64,23 @@ int main(int argc,char** argv){
     const char* keys[]={"_home","_source","_output","_apk"};
     const char* values[]={home.c_str(),source.c_str(),destination.c_str(),argv[5]};
     for(unsigned n=0;n<4;++n){PyObject* value=PyUnicode_DecodeFSDefault(values[n]);if(!value||PyDict_SetItemString(globals,keys[n],value)){Py_XDECREF(value);return 3;}Py_DECREF(value);}
+    PyObject* action=PyUnicode_FromString(argv[1]);
+    if(!action||PyDict_SetItemString(globals,"_action",action)){Py_XDECREF(action);return 3;}
+    Py_DECREF(action);
+    if(PyRun_SimpleString("import sys\nfrom pathlib import Path\nsys.path.insert(0,str(Path(_home)/'app'))\nimport device_variant\ndevice_variant.select(Path(_home),_action,Path(_source),Path(_apk))\n"))return 4;
     int result=PyRun_SimpleString(source_only?
         "import sys,os\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_import\ntry:\n device_import.run(Path(_source), Path(_output))\nfinally:\n owner=Path(_source).parent.stat()\n for item in [Path(_output),*Path(_output).rglob('*')]:\n  if item.is_symlink(): raise ValueError('unexpected source output link')\n  os.chown(item,owner.st_uid,owner.st_gid)\n":
         native_tools?
-        "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport native_runtime_check\nnative_runtime_check.run(Path(_source), Path(_output))\n":
+        "import native_runtime_check\nnative_runtime_check.run(Path(_source), Path(_output))\n":
         tools?
-        "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_tools\ndevice_tools.run(Path(_source), Path(_output))\n":
-        release?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_playback\ndevice_playback.release_preparation(Path(_source), Path(_output), Path(_apk))\n":
-        recover?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_recovery\ndevice_recovery.run(Path(_source), Path(_output), Path(_apk))\n":
-        finish?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_playback\ndevice_playback.finish_completed(Path(_source), Path(_output), Path(_apk))\n":
-        reset?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_reset\ndevice_reset.run(Path(_source), Path(_output), Path(_apk))\n":
-        play?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_playback\ndevice_playback.run(Path(_source), Path(_output), Path(_apk))\n":
-        build?"import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_build\ndevice_build.run(Path(_source), Path(_output), Path(_apk))\n":
-        "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(_home)/'app'))\nimport device_metadata\ndevice_metadata.run(Path(_source), Path(_output), Path(_apk))\n");
+        "import device_tools\ndevice_tools.run(Path(_source), Path(_output))\n":
+        release?"import device_playback\ndevice_playback.release_preparation(Path(_source), Path(_output), Path(_apk))\n":
+        recover?"import device_recovery\ndevice_recovery.run(Path(_source), Path(_output), Path(_apk))\n":
+        finish?"import device_playback\ndevice_playback.finish_completed(Path(_source), Path(_output), Path(_apk))\n":
+        reset?"import device_reset\ndevice_reset.run(Path(_source), Path(_output), Path(_apk))\n":
+        play?"import device_playback\ndevice_playback.run(Path(_source), Path(_output), Path(_apk))\n":
+        build?"import device_build\ndevice_build.run(Path(_source), Path(_output), Path(_apk))\n":
+        "import device_metadata\ndevice_metadata.run(Path(_source), Path(_output), Path(_apk))\n");
     if(PyErr_Occurred())PyErr_Print();
     return result?4:0;
 }

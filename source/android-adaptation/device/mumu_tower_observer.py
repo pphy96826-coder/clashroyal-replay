@@ -44,6 +44,7 @@ def adapt_header(original,prefix):
 
 
 def write_header(source,out,prefix,preparation=None):
+    (out/'client_layout.h').write_bytes((source.parent/'client_layout.h').read_bytes())
     original=(source.parent/'source_execution.h').read_bytes()
     adapted=adapt_header(original.decode('utf-8'),prefix)
     from mumu_skill_observer import adapt_header as adapt_skills

@@ -47,29 +47,25 @@ PAGE_MATCH_TIERS=('exact','same_towers','same_winner','different','unknown')
 
 
 def page_tower_comparison(source, preparation, report):
-    """Compare a fully executed run with the page's final towers.
+    """Compare a fully executed run with the page's six final towers.
 
-    Compare each king and source-ordered surviving princess HP, never totals.
-    A compacted one-element HP list cannot establish which tower was destroyed.
+    Uses the same per-tower rule as the ability check (final_tower_rows).
+    Returns (tier, hp_difference): exact HP values; same destroyed-tower counts
+    (not physical sides); same winner only; different; or unknown when any tower lacks
+    page data or simulated evidence. Unknown is never reported as a mismatch.
     """
     from ability_search import final_tower_rows
-    state=report.get('battle_state') or {}
-    crowns={};page_crowns={};difference=0;same_towers=True;exact=True
-    for deck in source['decks']:
-        owner=deck['proposed_native_owner']
-        rows=[r for r in final_tower_rows(source,preparation,report) if r['owner']==owner]
-        pairs=[(r['tower'],r['page'],r['simulated']) for r in rows]
-        if not pairs or any(expected is None or actual is None for _,expected,actual in pairs):return 'different',None
-        for key,expected_hp,hp in pairs:
-            difference+=abs(hp-expected_hp);exact=exact and hp==expected_hp
-            same_towers=same_towers and (hp==0)==(expected_hp==0)
-            loser=1-owner
-            crowns[loser]=crowns.get(loser,0)+(3 if key=='king' and hp==0 else (1 if hp==0 and key!='king' else 0))
-            page_crowns[loser]=page_crowns.get(loser,0)+(3 if key=='king' and expected_hp==0 else (1 if expected_hp==0 and key!='king' else 0))
-    def winner(c):a,b=min(c.get(0,0),3),min(c.get(1,0),3);return 0 if a>b else 1 if b>a else None
-    if exact:return 'exact',0
-    if same_towers:return 'same_towers',difference
-    if winner(crowns)==winner(page_crowns):return 'same_winner',difference
+    rows=final_tower_rows(source,preparation,report)
+    if not rows or any(r['page'] is None or r['simulated'] is None for r in rows):return 'unknown',None
+    difference=sum(abs(r['simulated']-r['page']) for r in rows)
+    if all(r['simulated']==r['page'] for r in rows):return 'exact',0
+    if all((r['simulated']==0)==(r['page']==0) for r in rows):return 'same_towers',difference
+    def winner(field):
+        crowns={0:0,1:0}
+        for r in rows:
+            if r[field]==0:crowns[1-r['owner']]+=3 if r['tower']=='king' else 1
+        a,b=min(crowns[0],3),min(crowns[1],3);return 0 if a>b else 1 if b>a else None
+    if winner('simulated')==winner('page'):return 'same_winner',difference
     return 'different',difference
 
 
@@ -127,10 +123,23 @@ def cost_text(cost, breakdown=None):
             '终局'+('晚' if delta>0 else '早')+('%.2f'%abs(delta))+' 秒')
         parts=['综合差距 '+str(cost)+' = 塔血差 '+value(hp)+' + 时间罚分 '+value(time_cost)+' + 圣水罚分 '+value(elixir_cost),
                timing+'（允许 ±1 秒）']
+        towers=breakdown.get('towers',[])
+        for owner in sorted({r['owner'] for r in towers}):
+            rows=[r for r in towers if r['owner']==owner]
+            side=rows[0].get('source_side')
+            label='蓝方' if side=='team' else '红方' if side=='opponent' else ('蓝方' if owner==0 else '红方')
+            details=[]
+            for r in rows:
+                name='国王塔' if r['tower']=='king' else '公主塔'
+                details.append(name+' '+value(r.get('page'))+'→'+value(r.get('simulated'))+'（差'+value(r.get('difference'))+'）')
+            parts.append(label+'塔血（网页→模拟）：'+'、'.join(details))
+        if any(r.get('page_pairing_inferred') for r in towers):
+            parts.append('公主塔已在同一玩家内按最小血差自动配对')
         for owner in (0,1):
             row=next((r for r in breakdown.get('elixir',[]) if r.get('owner')==owner),{})
             page=row.get('page');simulated=row.get('simulated')
-            label='蓝方' if owner==0 else '红方'
+            side=row.get('source_side')
+            label='蓝方' if side=='team' else '红方' if side=='opponent' else ('蓝方' if owner==0 else '红方')
             if page is None or simulated is None:
                 parts.append(label+'溢出圣水：缺少比对数据');continue
             verdict=('通过额外 %.2f 容差（近似）'%row.get('tolerance_margin',0) if row.get('strict_matched') is False else '通过网页截断范围') if row.get('matched') is True else '不通过' if row.get('matched') is False else '未判定'
@@ -189,11 +198,12 @@ def page_comparison(source, preparation, report):
 
 def page_breakdown(source, preparation, report):
     """Display values: tower HP difference and end-time difference in seconds."""
-    from ability_search import terminal_time,elixir_check,elixir_rows,elixir_strict_check,elixir_margin,elixir_cost,TIME_WEIGHT_PER_TICK
+    from ability_search import terminal_time,elixir_check,elixir_rows,elixir_cost,TIME_WEIGHT_PER_TICK,final_tower_rows,elixir_strict_check,elixir_margin
     _,hp=page_tower_comparison(source,preparation,report)
     time=terminal_time(source,report)
     elixir_matched,elixir_difference=elixir_check(source,report)
-    return dict(hp_difference=hp,time_difference_seconds=None if time['delta_ticks'] is None else round(time['delta_ticks']/20,2),
+    return dict(hp_difference=hp,towers=final_tower_rows(source,preparation,report),
+                time_difference_seconds=None if time['delta_ticks'] is None else round(time['delta_ticks']/20,2),
                 time_penalty=None if time['excess_ticks'] is None else TIME_WEIGHT_PER_TICK*time['excess_ticks'],
                 elixir_penalty=elixir_cost(source,report),
                 elixir_matched=elixir_matched,elixir_strict_matched=elixir_strict_check(source,report),elixir_tolerance_margin=elixir_margin(source),elixir_leaked_difference=elixir_difference,elixir=elixir_rows(source,report),
@@ -1254,8 +1264,7 @@ def run(request_path,destination,prefix):
                 # random_seed_inferred: matched only with a substituted seed; not proof of the original process.
                 # Per-tower record of the run actually selected, for side-by-side checks.
                 breakdown=page_breakdown(read(source),aligned,execution)
-                write_new(destination/'page-comparison.json',dict(tier=tier,difference=difference,match_cost=difference,**breakdown,
-                                                                  towers=page_towers(read(source),aligned,execution)))
+                write_new(destination/'page-comparison.json',dict(tier=tier,difference=difference,match_cost=difference,**breakdown))
                 context.update(final_hp_matched=hp_matched,page_match=tier,page_hp_difference=breakdown['hp_difference'],page_match_cost=difference,
                                page_time_difference_seconds=breakdown['time_difference_seconds'],random_seed=seed_report['selected_seed'],
                                random_seed_inferred=seed_report['selected_seed']!=original_seed or bool(context.get('deal_seed_changed')),seed_attempts=sum(row.get('phase')=='screen' for row in seed_report['attempts']),

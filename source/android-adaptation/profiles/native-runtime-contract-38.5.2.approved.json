@@ -1,0 +1,111 @@
+{
+  "library_bytes": 31685656,
+  "library_sha256": "0849d86b8a3689589e81fa2c50173e92f2ebf5fa0984c36ed4b448723d833fe2",
+  "jni_exports": [
+    {
+      "index": 370,
+      "name": "JNI_OnLoad",
+      "va": "0x180333c",
+      "size": 28,
+      "sha256": "88cc24d3292c7370fd4dbf19898d117c84e855cbe0461baf4a7abf66e10bb861"
+    },
+    {
+      "index": 403,
+      "name": "Java_com_supercell_titan_GameApp_nOnTouchEvent",
+      "va": "0x1804030",
+      "size": 112,
+      "sha256": "7e8a59015489fd9f174df3aaa52fc51fdf51d99c1d088e028a2079090e643e6e"
+    }
+  ],
+  "package": "com.tencent.tmgp.supercell.clashroyale",
+  "version": "38.5.2",
+  "architecture": "arm64-v8a",
+  "executable_span": 29646848,
+  "map_asset_sha256": {
+    "locations/dragon_arena.csv": "66e8a9b73c11b7cdd47bdae0440c5a05a9b9ba1fe8a43ce28e9e4e66137ce8fe",
+    "tilemaps/tilemap.csv": "93af091258a3d57081c50d638eb98ea45f4ea8dd21a0893cc35a0e32ba3a457f"
+  },
+  "supported": true,
+  "native_execution_allowed": true,
+  "contains_process_handles": false,
+  "schema": "royale-replay.audited-native-runtime-contract.v1",
+  "worker_validation_pins": [
+    {
+      "reference_va": "0x1629ab4",
+      "va": "0x17317d8",
+      "word": "0xa94fd674"
+    },
+    {
+      "reference_va": "0x1629abc",
+      "va": "0x17317e0",
+      "word": "0xa90ffe7f"
+    },
+    {
+      "reference_va": "0x1629ac0",
+      "va": "0x17317e4",
+      "word": "0xf900867f"
+    },
+    {
+      "reference_va": "0x1629ae8",
+      "va": "0x173180c",
+      "word": "0xf9400908"
+    },
+    {
+      "reference_va": "0x1629b24",
+      "va": "0x1731848",
+      "word": "0xf9400508"
+    },
+    {
+      "reference_va": "0x1629b44",
+      "va": "0x1731868",
+      "word": "0x94142cdd"
+    }
+  ],
+  "static_aliases": {
+    "0x1d34ae0": "0x1e477e0",
+    "0x1d46bd0": "0x1e631c0",
+    "0x1d88818": "0x1ea5a60",
+    "0x1d88820": "0x1ea5a68",
+    "0x1c75240": "0x1d87ef0",
+    "0x1c4a2e8": "0x1d5cdc0",
+    "0x1bebd08": "0x1cfcb60",
+    "0x1bd3cb0": "0x1ce4930",
+    "0x1b4f558": "0x1c57898",
+    "0x1bf6260": "0x1d07310",
+    "0x1bf69b0": "0x1d07a60",
+    "0x1c72ba8": "0x1d857d0",
+    "0x1c72bb0": "0x1d857d8",
+    "0x1c72de0": "0x1d85a00",
+    "0x1c72df8": "0x1d85a18",
+    "0x1c72e68": "0x1d85a88",
+    "0x1c26f70": "0x1d390d8",
+    "0x1c04150": "0x1d15578",
+    "0x1c0be40": "0x1d1d668",
+    "0x1c0a098": "0x1d1b8a8",
+    "0x10cc890": "0x11ac6a4",
+    "0x10b1030": "0x1190ab4",
+    "0x10b1038": "0x1190abc",
+    "0x1bf4420": "0x1d05428",
+    "0x1c04c18": "0x1d16210",
+    "0x1c0c800": "0x1d1e038",
+    "0x1c0ca28": "0x1d1e260"
+  },
+  "health_table_evidence": "Unique constructor/destructor function neighborhood candidates plus three corresponding vtable entries. Health field/object identity requires private initialization validation; not approved by this table mapping alone.",
+  "public_metadata_binding_evidence": "Current logged-in client: 659 catalog rows, 16 requested cards plus Spirit Empress; four SupportCard records with matching catalog ownership and corresponding rarity/group types. Getter machine code and scalar fields observed read-only; full native initialization remains pending.",
+  "import_binding_evidence": "Five unique live import slots match the loaded private component malloc/free/pthread lock/unlock/signal pointers. On-disk relocation table positions differ by one slot and are not used as runtime authorization.",
+  "entry_validation_pins": [
+    {
+      "va": "0x1c3cbdc",
+      "word": "0xd503245f"
+    },
+    {
+      "va": "0x1c3cbe0",
+      "word": "0x14001d50"
+    }
+  ],
+  "verification_scope": "Windows MuMu local exact-hash development adapter; fresh proxy exports, bridge image and every native function remain checked per task. Full replay validation pending.",
+  "windows_mapping": {
+    "zip_offset": "0x284d000",
+    "span": "0x1c46000"
+  }
+}

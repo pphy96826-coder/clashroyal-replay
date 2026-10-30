@@ -95,6 +95,31 @@ public final class NativePython {
         if(path.indexOf('\0')>=0||path.indexOf('\n')>=0)throw new IOException("invalid local task argument");
         return "'"+path.replace("'","'\\''")+"'";
     }
+    private static void checkClient(Context context,File apk)throws Exception {
+        JSONObject report=StandaloneDoctor.compatibility(apk);
+        android.content.pm.PackageInfo info=context.getPackageManager().getPackageInfo(StandaloneDoctor.GAME,0);
+        report.put("client_version",info.versionName);
+        if(!report.optBoolean("supported",false)){
+            // Relocation is an automatic diagnostic stage, never an execution approval.
+            InputStream reference=context.getAssets().open("client-relocation.tsv");
+            try{
+                ClientRelocator.Result found=ClientRelocator.scan(apk,reference,StandaloneDoctor.AUDITED_SHA);
+                if(!found.libraryHash.equals(report.getString("library_sha256")))throw new IOException("检查期间游戏已更新，请重新检查");
+                JSONObject anchors=new JSONObject();
+                for(Map.Entry<String,List<Long>> item:found.candidates.entrySet()){
+                    org.json.JSONArray locations=new org.json.JSONArray();for(Long va:item.getValue())locations.put(Long.toHexString(va));
+                    anchors.put(item.getKey(),locations);
+                }
+                report.put("automatic_relocation_completed",true).put("unique_anchors",found.unique)
+                    .put("ambiguous_anchors",found.ambiguous).put("missing_anchors",found.missing)
+                    .put("reference_checks",found.referenceChecks).put("reference_candidates_rejected",found.referenceRejected)
+                    .put("candidate_locations",anchors).put("object_layout_verified",false).put("native_execution_allowed",false);
+                report.put("message","游戏更新后已自动定位 "+found.unique+"/"+found.candidates.size()+" 处调用候选；另有 "+found.ambiguous+" 处歧义、"+found.missing+" 处待定位。对象布局尚未验证，暂不能播放；原回放保留。");
+            }finally{reference.close();}
+        }
+        MainActivity.write(new File(context.getFilesDir(),"client-compatibility.json"),report.toString().getBytes(StandardCharsets.UTF_8));
+        if(!report.optBoolean("supported",false))throw new IOException(report.getString("message")+" 当前游戏："+info.versionName);
+    }
     private static boolean hasNativeRuntime(File root){return new File(root,"app/mumu-support/runtime/manifest.json").isFile();}
     private static File runtimeExecutable(Context context,File root)throws Exception{
         if(hasNativeRuntime(root)){
@@ -208,7 +233,7 @@ public final class NativePython {
         }
         File root=ensure(context),prefix=tools(context);
         String apk=context.getPackageManager().getApplicationInfo(StandaloneDoctor.GAME,0).sourceDir;
-        if(!StandaloneDoctor.AUDITED_SHA.equals(StandaloneDoctor.libraryHash(new File(apk))))throw new IOException("客户端完整哈希不匹配");
+        checkClient(context,new File(apk));
         JSONObject imported=importSource(context,source);
         File manifest=new File(imported.getString("private_source_manifest"));
         File directory=new File(manifest.getParentFile(),"phone-playback");
