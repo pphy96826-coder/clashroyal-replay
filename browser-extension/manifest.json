@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "RoyaleAPI 回放导出",
+  "version": "2.0.0",
+  "description": "列出当前 RoyaleAPI 页面（玩家对战记录、卡组胜利榜等）上的全部回放，勾选后逐场导出为 HTML 文件，文件名为对手名字。",
+  "permissions": ["scripting", "downloads", "downloads.ui", "storage"],
+  "host_permissions": ["https://royaleapi.com/*", "https://www.royaleapi.com/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_title": "导出本页 RoyaleAPI 回放", "default_popup": "popup.html"}
+}

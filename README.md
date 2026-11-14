@@ -24,10 +24,15 @@
 | **非 Root 的安卓手机**（虚拟大师，实验性） | [纯安卓适配教程 · 第 5–7 节](android/README.md)；[其他方案](docs/非Root安卓与iOS播放方案.md) | [hotfix77](https://github.com/pphy96826-coder/clashroyal-replay/releases/tag/replay-sync-20261030-hotfix77) | [`source/android-native/`](source/android-native/README.md) |
 | iPhone / iPad | 没有本机方案，只能远程观看：[可能的播放方法](docs/非Root安卓与iOS播放方案.md) | — | — |
 
+## RoyaleAPI 回放导出（2026-11 改版后）
+
+RoyaleAPI 的单场回放页 `/replay?tag=…` 已下线（404），旧书签和旧扩展读不到回放了。新的 [`browser-extension/`](browser-extension/README.md) 在玩家对战记录、卡组胜利榜等列表页上列出全部回放，勾选后逐场导出为 HTML 文件，文件名是对手名字；每个文件含对战行（模式、卡组与等级、塔血、名字）和回放操作数据。需要在浏览器里登录 RoyaleAPI。
+
 ## 仓库结构
 
 | 路径 | 内容 |
 | --- | --- |
+| `browser-extension/` | Edge / Chrome 扩展：RoyaleAPI 单场回放页下线后，从对战列表页批量导出回放（勾选、按对手名保存）。见 [说明](browser-extension/README.md) |
 | `android/` | 纯安卓适配页面：完整图文教程（Markdown / PDF / 离线 HTML）、截图、更新说明 |
 | `source/android-native/` | 纯安卓适配源码：控制台 APK、设备端运行时、测试、共用回放模块 |
 | `docs/mumu-android/` | Windows + MuMu 一体版教程、PDF、修复说明与验收记录 |

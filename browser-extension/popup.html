@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>RoyaleAPI 回放导出</title>
+<style>
+:root{--bg:#f3f6fb;--fg:#16243a;--muted:#5a6a82;--line:#d6deea;--accent:#2269d7;--ok:#1a7f37;--bad:#c62828;--warn:#9a6700;--card:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#141a24;--fg:#e6ecf5;--muted:#9aa8bd;--line:#2c3646;--accent:#5b9bff;--ok:#4ac26b;--bad:#ff7b72;--warn:#d29922;--card:#1c2330}}
+*{box-sizing:border-box}
+body{width:440px;margin:0;padding:14px;font:13px/1.45 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg)}
+h3{margin:0 0 4px;font-size:15px}
+#page{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:8px}
+.bar{display:flex;gap:6px;align-items:center;margin:6px 0}
+.bar .grow{flex:1;color:var(--muted)}
+button{padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;font:inherit}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+#list{max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.row{display:grid;grid-template-columns:22px 1fr auto;gap:6px;padding:7px 9px;border-bottom:1px solid var(--line);align-items:start}
+.row:last-child{border-bottom:0}
+.row input{margin:3px 0 0}
+.opp{font-weight:600;overflow-wrap:anywhere}
+.sub{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.state{font-size:12px;white-space:nowrap;text-align:right}
+.saved{color:var(--ok)}.failed{color:var(--bad)}.missing,.skipped{color:var(--warn)}.working{color:var(--accent)}
+.file{grid-column:2/4}
+.err{grid-column:2/4;color:var(--bad);font-size:12px;overflow-wrap:anywhere}
+#status{white-space:pre-wrap;margin-top:8px;min-height:18px;overflow-wrap:anywhere}
+small{display:block;color:var(--muted);margin-top:8px;line-height:1.5}
+</style>
+</head>
+<body>
+<h3>RoyaleAPI 回放导出</h3>
+<div id="page">正在读取当前页面…</div>
+<div class="bar">
+  <button id="all">全选</button><button id="none">全不选</button>
+  <span class="grow" id="count"></span>
+  <button id="reload" title="重新读取页面上的对战">刷新列表</button>
+</div>
+<div id="list"></div>
+<div class="bar">
+  <span class="grow"></span>
+  <button id="cancel" hidden>停止</button>
+  <button id="export" class="primary" disabled>导出所选</button>
+</div>
+<div id="status" role="status"></div>
+<small>每场存为一个 HTML 文件，名字是对手名，放在“下载/RoyaleAPI回放”；同名自动加 (1)、(2)。文件含对战行（模式、双方卡组与等级、塔血、名字）和回放操作数据。只在你点击时请求 RoyaleAPI，逐场间隔 1.5 秒；遇到 Cloudflare 拒绝会停下，不会自动过验证。关闭本窗口不影响正在进行的导出。</small>
+<script src="page.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>
